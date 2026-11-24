@@ -137,3 +137,33 @@ kept — and a summary line ("Scanned: Amazing Spider-Man #361 — CGC 9.4
 Nothing auto-saves. Honest limit: slab labels are clean print and read
 well; stylised raw-cover lettering can misread, which is why the member
 always confirms before saving.
+
+## Update — Book Search tab (2026-11-24)
+
+A **BOOK SEARCH** nav tab (`viewSearchHtml` / `runBookSearch` in
+`web/app.js`) lets any member type a series + issue ("Hulk 185",
+"Amazing Spider-Man 361") and get two result groups:
+
+- **In the community** — a live `gallery_comics` query (`ilike` on
+  title, exact-issue matches preferred when an issue number was
+  typed). Cards reuse the gallery card; each also gets an **ADD YOUR
+  OWN COPY** button that opens the add form pre-filled from that row.
+- **From the archive** — the Internet Archive advancedsearch API
+  (archive.org, keyless, CORS-open — verified live). Shows publisher,
+  year, creators and a description snippet, with **ADD TO MY SHELF**
+  opening the add form pre-filled: title/issue from the query,
+  publisher mapped onto the form's publisher list, and
+  year/creators/description packed into the private Notes field (the
+  schema has no year/creator columns; schema unchanged).
+
+**Data-source verdict (checked live 2026-11-24):** no keyless source
+returns solid issue-level data. The Grand Comics Database has the
+deep data, but its API has no search endpoint and sends no CORS
+headers, so a static site cannot use it. The Internet Archive works
+from the browser but catalogues collected editions and classics far
+better than single issues — many famous issues (e.g. Incredible Hulk
+#185) are simply not in it, and the UI says so rather than faking
+results. **Upgrade path:** Metron (metron.cloud) is a proper
+issue-level API with credits, but it requires a free account's
+credentials (HTTP 401 without), which a public static page cannot
+hold — it would need a small server proxy or per-member keys.

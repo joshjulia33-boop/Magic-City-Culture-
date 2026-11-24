@@ -64,6 +64,11 @@ let view = { kind: "gallery" };  // gallery | market | collectors | profile | sh
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
 let galleryGroup = false;
+let bookSearchQuery = "";
+let searchParsed = { series: "", issue: "", raw: "" };
+let searchCommunity = [];        // gallery_comics rows matching the query
+let searchResearch = [];         // Internet Archive docs matching the query
+let searchState = "idle";        // idle | loading | done
 let busy = false;
 
 const profileById = (id) => profiles.find((p) => p.id === id) || null;
@@ -578,6 +583,7 @@ function render() {
   const app = $("#app");
   try {
     if (view.kind === "gallery") app.innerHTML = viewGalleryHtml();
+    else if (view.kind === "search") app.innerHTML = viewSearchHtml();
     else if (view.kind === "market") app.innerHTML = viewMarketHtml();
     else if (view.kind === "collectors") app.innerHTML = viewCollectorsHtml();
     else if (view.kind === "profile") app.innerHTML = viewProfileHtml(view.collectorId);
@@ -600,6 +606,8 @@ function render() {
   }
   const groupToggle = $("#gallery-group");
   if (groupToggle) groupToggle.addEventListener("change", (e) => { galleryGroup = e.target.checked; render(); });
+  const bsForm = $("#book-search-form");
+  if (bsForm) bsForm.addEventListener("submit", (e) => { e.preventDefault(); runBookSearch($("#bs-q").value); });
   const inviteForm = $("#invite-form");
   if (inviteForm) {
     inviteForm.addEventListener("submit", (e) => {
@@ -825,21 +833,200 @@ async function onProfileSubmit(e) {
   }
 }
 
+/* ---------------- book search ----------------
+   Look a book up two ways: on the community's own shelves (exact data,
+   straight from Supabase) and in the Internet Archive's free library
+   (archive.org advancedsearch — keyless and CORS-open, verified live
+   2026-11-24). Be honest about the archive's limits: it catalogues
+   collected editions, classics and scans far better than individual
+   issues, so plenty of real single issues simply aren't in it. The
+   Grand Comics Database has the deep issue data but its API offers no
+   search and no CORS headers, so a static site can't use it; Metron
+   (metron.cloud) is the proper issue-level API and the upgrade path,
+   but it needs a free account's credentials, which a public static
+   page can't hold. Nothing here is faked: empty means empty. */
+function parseBookQuery(q) {
+  const raw = String(q || "").trim().replace(/\s+/g, " ");
+  const m = raw.match(/^(.*?)\s+#?(\d{1,4}[a-zA-Z]?)$/);
+  if (m && m[1]) return { series: m[1].replace(/#$/, "").trim(), issue: m[2], raw };
+  return { series: raw, issue: "", raw };
+}
+function stripHtml(s) {
+  return String(s ?? "").replace(/<[^>]*>/g, " ").replace(/&[a-z#0-9]+;/gi, " ").replace(/\s+/g, " ").trim();
+}
+function publisherFromText(...texts) {
+  const hay = texts.filter(Boolean).join(" ").toLowerCase();
+  const table = [
+    ["marvel", "Marvel"], ["dc comics", "DC Comics"], ["image comics", "Image Comics"],
+    ["dark horse", "Dark Horse"], ["dynamite", "Dynamite"], ["boom! studios", "BOOM! Studios"],
+    ["boom studios", "BOOM! Studios"],
+  ];
+  for (const [needle, name] of table) if (hay.includes(needle)) return name;
+  if (/\bidw\b/.test(hay)) return "IDW";
+  if (/\bawa\b/.test(hay)) return "AWA";
+  if (/\bdc\b/.test(hay)) return "DC Comics";
+  return "";
+}
+async function fetchResearch(series) {
+  const terms = series.split(/\s+/).map((t) => t.replace(/[^\p{L}\p{N}'\-]/gu, "")).filter(Boolean);
+  if (!terms.length) return [];
+  const params = new URLSearchParams();
+  params.set("q", `title:(${terms.join(" AND ")}) AND mediatype:texts`);
+  for (const f of ["identifier", "title", "date", "creator", "publisher", "description"]) params.append("fl[]", f);
+  params.append("sort[]", "downloads desc");
+  params.set("rows", "12");
+  params.set("output", "json");
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  try {
+    const r = await fetch(`https://archive.org/advancedsearch.php?${params.toString()}`, { signal: ctl.signal });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return j?.response?.docs || [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function runBookSearch(raw) {
+  const q = String(raw || "").trim();
+  bookSearchQuery = q;
+  if (!q) { searchState = "idle"; render(); return; }
+  searchParsed = parseBookQuery(q);
+  searchState = "loading";
+  searchCommunity = [];
+  searchResearch = [];
+  render();
+  const safeSeries = searchParsed.series.replace(/[%_]/g, " ").trim();
+  if (safeSeries) {
+    try {
+      const { data, error } = await sb.from("gallery_comics").select("*")
+        .ilike("title", `%${safeSeries}%`)
+        .order("created_at", { ascending: false }).limit(60);
+      if (error) throw error;
+      let comm = data || [];
+      if (searchParsed.issue) {
+        const want = searchParsed.issue.toLowerCase();
+        const exact = comm.filter((c) => (c.issue || "").replace(/[^0-9a-z]/gi, "").toLowerCase() === want);
+        if (exact.length) comm = exact;
+      }
+      searchCommunity = comm;
+    } catch { searchCommunity = []; }
+  }
+  searchResearch = await fetchResearch(searchParsed.series);
+  if (searchParsed.issue) {
+    const n = searchParsed.issue;
+    searchResearch.sort((a, b) => (String(b.title || "").includes(n) ? 1 : 0) - (String(a.title || "").includes(n) ? 1 : 0));
+  }
+  searchState = "done";
+  if (view.kind === "search") render();
+}
+function researchCardHtml(d, i) {
+  const creator = Array.isArray(d.creator) ? d.creator.join(", ") : (d.creator || "");
+  const year = /^\d{4}/.test(d.date || "") ? d.date.slice(0, 4) : "";
+  const desc = stripHtml(d.description);
+  return `<article class="research-card">
+    <p class="title">${esc(stripHtml(d.title) || "Untitled")}</p>
+    <div class="detail-meta">
+      ${d.publisher ? `<p><span class="k">Publisher</span>${esc(d.publisher)}</p>` : ""}
+      ${year ? `<p><span class="k">Year</span>${esc(year)}</p>` : ""}
+      ${creator ? `<p><span class="k">Creators</span>${esc(creator)}</p>` : ""}
+    </div>
+    ${desc ? `<p class="research-desc">${esc(desc.slice(0, 300))}${desc.length > 300 ? "…" : ""}</p>` : ""}
+    <div class="row-actions">
+      <button type="button" class="btn btn-pink btn-sm" data-action="search-add" data-idx="${i}">ADD TO MY SHELF</button>
+      <a class="btn btn-ghost btn-sm" href="https://archive.org/details/${esc(d.identifier)}" target="_blank" rel="noopener">VIEW IN ARCHIVE</a>
+    </div>
+  </article>`;
+}
+function viewSearchHtml() {
+  let results = "";
+  if (searchState === "loading") {
+    results = `<p class="empty">Searching the community shelves and the archive…</p>`;
+  } else if (searchState === "done") {
+    const comm = searchCommunity.length
+      ? `<h3 class="search-head">IN THE COMMUNITY (${searchCommunity.length})</h3>
+         <div class="grid">${searchCommunity.map((c) => `<div>${galleryCardHtml(c)}<button type="button" class="btn btn-blue btn-sm search-add-btn" data-action="search-add-community" data-id="${c.id}">ADD YOUR OWN COPY</button></div>`).join("")}</div>`
+      : `<h3 class="search-head">IN THE COMMUNITY</h3><p class="empty">No copies on members' shelves match that yet — yours could be the first.</p>`;
+    const res = searchResearch.length
+      ? `<h3 class="search-head">FROM THE ARCHIVE (${searchResearch.length})</h3>
+         <div class="research-list">${searchResearch.map((d, i) => researchCardHtml(d, i)).join("")}</div>`
+      : `<h3 class="search-head">FROM THE ARCHIVE</h3><p class="empty">Nothing in the archive under that name. It catalogues collected editions and classics far better than single issues, so a book can be missing here and still be very real — the title and issue you typed can always go straight onto your shelf with ADD A BOOK.</p>`;
+    results = comm + res;
+  }
+  return `
+    <h2 class="view-title neon-text">BOOK SEARCH</h2>
+    <p class="view-sub">Type a series and issue — “Amazing Spider-Man 361”, “Hulk 185” — and we'll look it up two ways: on the community's own shelves, and in the Internet Archive's free library for publisher, year and creator info. Found a match? Add it to your shelf pre-filled.</p>
+    <form id="book-search-form">
+      <div class="toolbar">
+        <label class="sr-only" for="bs-q" style="position:absolute;left:-9999px">Search for a book</label>
+        <input id="bs-q" class="input grow" type="search" placeholder="Series and issue, e.g. Hulk 185" value="${esc(bookSearchQuery)}" />
+        <button type="submit" class="btn btn-pink">SEARCH</button>
+      </div>
+    </form>
+    ${results}`;
+}
+function researchPrefill(d) {
+  const creator = Array.isArray(d.creator) ? d.creator.join(", ") : (d.creator || "");
+  const year = /^\d{4}/.test(d.date || "") ? d.date.slice(0, 4) : "";
+  const publisher = publisherFromText(d.publisher, creator, d.title);
+  const listedAs = stripHtml(d.title);
+  const bits = [];
+  if (publisher) bits.push(publisher);
+  if (year) bits.push(year);
+  if (creator && creator.toLowerCase() !== (publisher || "").toLowerCase()) bits.push(`By ${creator}`);
+  let notes = bits.join(" · ");
+  const desc = stripHtml(d.description);
+  if (desc) notes += (notes ? " — " : "") + desc;
+  if (listedAs && listedAs.toLowerCase() !== (searchParsed.series || "").toLowerCase()) {
+    notes = `Archive listing: “${listedAs}”. ` + notes;
+  }
+  return {
+    title: searchParsed.series || listedAs,
+    issue: searchParsed.issue ? `#${searchParsed.issue}` : "",
+    publisher: publisher || undefined,
+    notes: notes.slice(0, 480),
+  };
+}
+function addFromResearch(i) {
+  const d = searchResearch[i];
+  if (!d) return;
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  openComicForm(null, researchPrefill(d));
+}
+function addFromCommunity(id) {
+  const c = searchCommunity.find((x) => x.id === id) || gallery.find((x) => x.id === id);
+  if (!c) return;
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  openComicForm(null, {
+    title: c.title,
+    issue: c.issue,
+    publisher: c.publisher || undefined,
+    variant: c.variant || "",
+    grade: c.grade || "",
+    notes: `Same book as ${c.collector_name}'s copy in the community.`,
+  });
+}
+
 /* ---------------- comic add / edit ---------------- */
-function comicFormHtml(c) {
+function comicFormHtml(c, prefill = null) {
   const v = c ? myValues.get(c.id) : null;
   const status = c?.status || "owned";
   return `
+    ${prefill ? `<p class="scan-status" style="margin:0 0 .75rem">Pre-filled from Book Search — check it over, then save.</p>` : ""}
     <div class="field"><label class="label" for="cf-title">Title *</label>
-      <input class="input" id="cf-title" required maxlength="160" value="${esc(c?.title || "")}" /></div>
+      <input class="input" id="cf-title" required maxlength="160" value="${esc(c?.title || prefill?.title || "")}" /></div>
     <div class="field"><label class="label" for="cf-issue">Issue</label>
-      <input class="input" id="cf-issue" maxlength="30" value="${esc(c?.issue || "")}" placeholder="#1" /></div>
+      <input class="input" id="cf-issue" maxlength="30" value="${esc(c?.issue || prefill?.issue || "")}" placeholder="#1" /></div>
     <div class="field"><label class="label" for="cf-publisher">Publisher</label>
-      <select class="input" id="cf-publisher">${PUBLISHERS.map((pub) => `<option ${pub === (c?.publisher || "Marvel") ? "selected" : ""}>${esc(pub)}</option>`).join("")}</select></div>
+      <select class="input" id="cf-publisher">${PUBLISHERS.map((pub) => `<option ${pub === (c?.publisher || prefill?.publisher || "Marvel") ? "selected" : ""}>${esc(pub)}</option>`).join("")}</select></div>
     <div class="field"><label class="label" for="cf-variant">Variant / edition</label>
-      <input class="input" id="cf-variant" maxlength="200" value="${esc(c?.variant || "")}" /></div>
+      <input class="input" id="cf-variant" maxlength="200" value="${esc(c?.variant || prefill?.variant || "")}" /></div>
     <div class="field"><label class="label" for="cf-grade">Grade</label>
-      <select class="input" id="cf-grade">${GRADES.map((g) => `<option value="${esc(g)}" ${g === (c?.grade || "") ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
+      <select class="input" id="cf-grade">${GRADES.map((g) => `<option value="${esc(g)}" ${g === (c?.grade || prefill?.grade || "") ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
     <div class="field"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label></div>
     <div class="field"><label class="label" for="cf-status">Status</label>
       <select class="input" id="cf-status">
@@ -863,15 +1050,15 @@ function comicFormHtml(c) {
     <div class="field"><label class="label" for="cf-source">Bought from (seller / shop)</label>
       <input class="input" id="cf-source" maxlength="160" value="${esc(v?.source || "")}" /></div>
     <div class="field"><label class="label" for="cf-notes">Notes</label>
-      <textarea class="input" id="cf-notes" rows="2" maxlength="500">${esc(v?.notes || "")}</textarea></div>`;
+      <textarea class="input" id="cf-notes" rows="2" maxlength="500">${esc(v?.notes || prefill?.notes || "")}</textarea></div>`;
 }
-function openComicForm(comicId = null) {
+function openComicForm(comicId = null, prefill = null) {
   const c = comicId ? myComics.find((x) => x.id === comicId) : null;
   if (comicId && !c) return;
   openModal(`
     ${modalHead(c ? "EDIT BOOK" : "ADD A BOOK")}
     <form id="comic-form" data-comic-id="${c?.id || ""}">
-      ${comicFormHtml(c)}
+      ${comicFormHtml(c, prefill)}
       <p class="form-error" id="cf-error"></p>
       <div class="row-actions">
         <button type="submit" class="btn btn-pink">${c ? "SAVE BOOK" : "ADD TO MY SHELF"}</button>
@@ -1251,6 +1438,8 @@ document.addEventListener("click", (e) => {
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;
     case "copy-claude-add": copyTextFromField("claude-add-text", el); break;
     case "add-book": openComicForm(null); break;
+    case "search-add": addFromResearch(Number(el.dataset.idx)); break;
+    case "search-add-community": addFromCommunity(id); break;
     case "edit-book": openComicForm(id); break;
     case "delete-book": deleteBook(id); break;
   }
