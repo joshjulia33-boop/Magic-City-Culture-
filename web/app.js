@@ -851,7 +851,8 @@ function comicFormHtml(c) {
     <div class="field"><span class="label">Cover colour (tile shown until you add a photo)</span>${swatchesHtml("cf-color", c?.cover_color || "#FF2E88")}</div>
     <div class="field"><label class="label" for="cf-cover">Cover photo (optional)</label>
       <input class="input" id="cf-cover" type="file" accept="image/*" />
-      ${c?.cover_url ? `<p class="form-note" style="margin-top:.3rem">A cover photo is set — choosing a new one replaces it.</p>` : ""}</div>
+      <p class="form-note" style="margin-top:.3rem">${c?.cover_url ? "A cover photo is set — choosing a new one replaces it. " : ""}Pick a clear photo of the cover or the slab label and we'll try to read the title, issue and grade off it for you.</p>
+      <p class="scan-status" id="cf-scan-status" role="status" hidden></p></div>
     <h3 style="font-size:15px;margin:1rem 0 .5rem">Your private numbers — only you ever see these</h3>
     <div class="field"><label class="label" for="cf-paid">What you paid ($)</label>
       <input class="input" id="cf-paid" inputmode="decimal" value="${esc(centsToDollars(v?.purchase_price_cents))}" /></div>
@@ -878,6 +879,11 @@ function openComicForm(comicId = null) {
       </div>
     </form>`, true);
   wireSwatches(document);
+  const coverInput = $("#cf-cover");
+  if (coverInput) coverInput.addEventListener("change", () => {
+    const f = coverInput.files?.[0];
+    if (f) scanCoverPhoto(f);
+  });
   $("#cf-status").addEventListener("change", (e) => {
     $("#cf-asking-wrap").style.display = e.target.value === "for_sale" ? "" : "none";
   });
@@ -947,6 +953,162 @@ async function onComicSubmit(e) {
     err.textContent = ex.message || "That didn't work — try again.";
   } finally {
     busy = false;
+  }
+}
+
+/* ---------------- cover photo scan (on-device OCR) ----------------
+   When a member picks a cover photo, read it right in the browser with
+   Tesseract.js and pre-fill title / issue / grade from what it says —
+   graded slab labels (CGC / CBCS / PGX) are clean print and read best;
+   stylised cover lettering can misread, so nothing is ever saved by the
+   scan: the member checks and corrects, then saves as usual. Fields the
+   member already typed in are never overwritten, and the photo itself
+   still becomes the cover through the normal upload on save. */
+const SCAN_BOILER = /CGC|CBCS|PGX|MARVEL|DC\s+COMICS|IMAGE\s+COMICS|COMICS\s+GROUP|UNIVERSAL|SIGNATURE|QUALIFIED|RESTORED|WHITE\s+PAGES|YELLOW\s+PAGES|OFF-WHITE|APPROVED\s+BY|COMICS\s+CODE|PRINTED\s+IN|MADE\s+IN/i;
+const SCAN_DATE = /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\b|\b(19|20)\d{2}\b/i;
+
+function scanLines(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/[|_~^`]+/g, " ").replace(/\s+/g, " ").trim())
+    .filter((l) => /[A-Za-z0-9]/.test(l));
+}
+function scanFindGrade(text) {
+  const up = String(text || "").toUpperCase();
+  const gm = up.match(/\b(CGC|CBCS|PGX)\b/);
+  if (!gm) return "";
+  const nums = [];
+  const re = /\b(10\.0|[0-9]\.\d)\b/g;
+  let m;
+  while ((m = re.exec(up))) nums.push({ v: m[1], i: m.index });
+  if (!nums.length) return "";
+  // The grade printed closest to the grader's name is the book's grade.
+  nums.sort((a, b) => Math.abs(a.i - gm.index) - Math.abs(b.i - gm.index));
+  return `${gm[1]} ${nums[0].v}`;
+}
+function scanFindIssue(text, titleGuess) {
+  const up = String(text || "").toUpperCase();
+  const m = up.match(/#\s*(\d{1,4})\b/) || up.match(/\bNO\.?\s*(\d{1,4})\b/) || up.match(/\bISSUE\s*#?\s*(\d{1,4})\b/);
+  if (m) return `#${m[1]}`;
+  // Fallback: a lone number on the title's line, or a short line that is
+  // just a number (corner boxes). Never a barcode run or a decimal.
+  const key = (titleGuess || "").toUpperCase().replace(/[^A-Z ]/g, "").trim().split(" ")[0];
+  for (const line of scanLines(up)) {
+    if (/\d{6,}/.test(line)) continue;
+    const nm = line.match(/\b(\d{1,3})\b/);
+    if (!nm) continue;
+    if (key && line.includes(key)) return `#${nm[1]}`;
+    if (line.replace(/[^0-9]/g, "") === nm[1] && line.length <= 8) return `#${nm[1]}`;
+  }
+  return "";
+}
+function scanCleanTitle(raw) {
+  const t = String(raw || "")
+    .replace(/\bNO\.?\s*\d{1,4}\b/gi, " ") // "Batman No. 608" -> "Batman"
+    .replace(/\bISSUE\s*#?\s*\d{1,4}\b/gi, " ")
+    .replace(/[^A-Za-z0-9'&\- ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+#?\d{1,4}$/, "") // issue number glued onto the title line
+    .trim();
+  if (!t) return "";
+  const small = new Set(["the", "of", "and", "a", "an"]);
+  return t.toLowerCase().split(" ").map((w, i) => {
+    if (i > 0 && small.has(w)) return w;
+    return w.split("-").map((p) => (p ? p[0].toUpperCase() + p.slice(1) : p)).join("-");
+  }).join(" ");
+}
+function scanFindTitle(ocrData, plainText) {
+  const boiler = (s) => SCAN_BOILER.test(s) || SCAN_DATE.test(s) || /\d{6,}/.test(s) || /\$\s*\d/.test(s);
+  const letterCount = (s) => s.replace(/[^A-Za-z]/g, "").length;
+  const candidates = [];
+  for (const ln of ocrData?.lines || []) {
+    const t = (ln.text || "").replace(/\s+/g, " ").trim();
+    if (letterCount(t) < 2 || boiler(t)) continue;
+    // Cover titles are set in the biggest type — use word height as the cue.
+    const h = Math.max(0, ...(ln.words || []).map((w) => (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0)));
+    candidates.push({ t, h });
+  }
+  if (!candidates.length) {
+    for (const t of scanLines(plainText)) {
+      if (letterCount(t) >= 2 && !boiler(t)) candidates.push({ t, h: 0 });
+    }
+  }
+  if (!candidates.length) return "";
+  // Biggest type wins; on a tie the line carrying the issue number is
+  // almost always the title line on a slab label.
+  candidates.sort((a, b) => (b.h - a.h)
+    || ((/#\s*\d/.test(b.t) ? 1 : 0) - (/#\s*\d/.test(a.t) ? 1 : 0))
+    || (letterCount(b.t) - letterCount(a.t)));
+  return scanCleanTitle(candidates[0].t);
+}
+function scanLoadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => resolve({ img, url });
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That photo couldn't be opened.")); };
+    img.src = url;
+  });
+}
+function scanCanvas(img, topFraction, maxWidth) {
+  const sw = img.naturalWidth;
+  const sh = Math.round(img.naturalHeight * (topFraction || 1));
+  const scale = Math.min(1, maxWidth / sw);
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(sw * scale));
+  c.height = Math.max(1, Math.round(sh * scale));
+  c.getContext("2d").drawImage(img, 0, 0, sw, sh, 0, 0, c.width, c.height);
+  return c;
+}
+let scanBusy = false;
+async function scanCoverPhoto(file) {
+  const status = $("#cf-scan-status");
+  if (!status || scanBusy) return;
+  if (!file.type || !file.type.startsWith("image/")) return;
+  status.hidden = false;
+  if (!window.Tesseract) {
+    status.textContent = "Cover scanning isn't available right now — just fill the form in as usual.";
+    return;
+  }
+  scanBusy = true;
+  status.textContent = "Scanning cover… this can take a few seconds.";
+  try {
+    const { img, url } = await scanLoadImage(file);
+    try {
+      const first = (await window.Tesseract.recognize(scanCanvas(img, 1, 1600), "eng")).data;
+      let grade = scanFindGrade(first.text);
+      let title = scanFindTitle(first, first.text);
+      let issue = scanFindIssue(first.text, title);
+      if (!grade) {
+        // Slab labels sit at the top of the case — look closer there.
+        const top = (await window.Tesseract.recognize(scanCanvas(img, 0.34, 1600), "eng")).data;
+        grade = scanFindGrade(top.text);
+        if (!title) title = scanFindTitle(top, top.text);
+        if (!issue) issue = scanFindIssue(top.text, title);
+      }
+      const titleEl = $("#cf-title");
+      const issueEl = $("#cf-issue");
+      const gradeEl = $("#cf-grade");
+      if (!titleEl || !issueEl || !gradeEl) return; // form closed mid-scan
+      if (title && !titleEl.value.trim()) titleEl.value = title;
+      if (issue && !issueEl.value.trim()) issueEl.value = issue;
+      if (grade && !gradeEl.value) {
+        if (![...gradeEl.options].some((o) => o.value === grade)) gradeEl.add(new Option(grade, grade));
+        gradeEl.value = grade;
+      }
+      const bits = [[title, issue].filter(Boolean).join(" "), grade].filter(Boolean).join(" — ");
+      status.textContent = bits
+        ? `Scanned: ${bits} — check it over, fix anything off, then save.`
+        : "Couldn't read that cover — no problem, just fill the form in as usual.";
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch (ex) {
+    const s = $("#cf-scan-status");
+    if (s) s.textContent = "Couldn't read that photo — no problem, just fill the form in as usual.";
+  } finally {
+    scanBusy = false;
   }
 }
 

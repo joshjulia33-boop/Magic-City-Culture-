@@ -290,6 +290,7 @@ textarea.copy-text { font-size: 13px; line-height: 1.45; }
 .tabs button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: #000; }
 .form-error { color: var(--accent-soft); font-size: 13px; font-weight: 700; min-height: 1.1em; margin: 0.25rem 0 0.5rem; }
 .form-note { font-size: 13px; color: var(--dim); margin: 0 0 0.75rem; }
+.scan-status { font-size: 13px; font-weight: 700; color: var(--accent); margin: 0.35rem 0 0; }
 .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
 .hidden { display: none !important; }
 .center-note { text-align: center; padding: 3rem 0; }
