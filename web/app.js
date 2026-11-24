@@ -100,6 +100,50 @@ function referralCountFor(collectorId) {
   return profiles.filter((p) => p.referred_by && p.referred_by === collectorId).length;
 }
 
+/* ---------------- ask-your-Muse helpers ----------------
+   There is no Muse-to-Muse account link: a friend's own Muse helps
+   them by opening this site in a browser and doing the steps with them,
+   exactly the way Joshua's Muse built all of this. These helpers just
+   hand the visitor or member a ready-made message to paste to their
+   Muse, so the setup feels one-tap. Copy-text only — no new backend. */
+const SITE_URL = "https://magic-city-culture.vercel.app/";
+function claudeJoinMessage() {
+  // Arrived through a referral link? The copied message must carry the
+  // full referral URL, so the inviter still gets the credit.
+  if (referrerProfile) {
+    const link = referralLinkFor(referrerProfile.handle);
+    return `Join Magic City Culture, a comic collectors community, at ${link} — I was invited through this link, so please open this exact address. Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf.`;
+  }
+  return `Join Magic City Culture, a comic collectors community, at ${SITE_URL} (if I arrived through a referral link, keep the ?ref= part). Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf.`;
+}
+function claudeJoinPanelHtml() {
+  return `<div class="claude-panel">
+    <p class="cp-tag">HAVE CLAUDE? LET IT SET YOU UP.</p>
+    <p class="form-note">Copy this message and paste it to your own Muse — it'll open the site, sign you up, create your collector profile, and help you shelve your first books.</p>
+    <div class="field"><label class="label" for="claude-join-text">Message for your Muse</label>
+      <textarea class="input copy-text" id="claude-join-text" rows="4" readonly>${esc(claudeJoinMessage())}</textarea></div>
+    <button type="button" class="btn btn-blue" data-action="copy-claude-join">COPY THE MESSAGE</button>
+  </div>`;
+}
+function claudeInviteText(link) {
+  return `Join me on Magic City Culture — a Miami community for comic collectors: ${link}\n\nGot Muse? Paste this to it and it'll set you up:\n"Join Magic City Culture at ${link} — I was invited through this link, so please open this exact address. Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf."`;
+}
+function claudeAddBooksText() {
+  return `Open Magic City Culture at ${SITE_URL} and sign in as me. Then add books to my shelf — for each book I'll give you the title, the issue, the variant or edition, whether it's signed or graded (and the grade), and a cover photo. Add each book with all of those details and upload its cover photo, then tell me when my shelf is updated.
+
+My books:
+1. `;
+}
+function claudeShelfPanelHtml() {
+  return `<div class="values-panel">
+    <p class="vp-tag">ADD BOOKS WITH YOUR CLAUDE</p>
+    <p class="vp-note" style="margin-top:.4rem">Hand your own Muse this instruction plus your list of books, and it'll add them to this shelf for you — cover photos included.</p>
+    <div class="field" style="margin-top:.6rem"><label class="label" for="claude-add-text">Instruction for your Muse</label>
+      <textarea class="input copy-text" id="claude-add-text" rows="6" readonly>${esc(claudeAddBooksText())}</textarea></div>
+    <button type="button" class="btn btn-blue" data-action="copy-claude-add">COPY THE INSTRUCTION</button>
+  </div>`;
+}
+
 /* ---------------- shared fragments ---------------- */
 function avatarHtml(p, size = "md") {
   const initial = (p.display_name || "?").trim()[0]?.toUpperCase() || "?";
@@ -456,6 +500,10 @@ function invitePanelHtml(p) {
       </div>
     </form>
     <p class="vp-note">The email opens in your own mail app, from you — the site never sends mail for you.</p>
+    <p class="vp-note" style="margin-top:.8rem">Friend uses Muse too? Send them this instead — their Muse can do the whole setup for them:</p>
+    <div class="field" style="margin-top:.4rem"><label class="label" for="ref-claude-text">Invite for a Muse user</label>
+      <textarea class="input copy-text" id="ref-claude-text" rows="4" readonly>${esc(claudeInviteText(link))}</textarea></div>
+    <button type="button" class="btn btn-blue" data-action="copy-ref-claude">COPY CLAUDE INVITE</button>
   </div>`;
 }
 function viewShelfHtml() {
@@ -519,6 +567,7 @@ function viewShelfHtml() {
       </button>
     </div>
     ${invitePanelHtml(p)}
+    ${claudeShelfPanelHtml()}
     ${myComics.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Your shelf is empty — add your first book.</p>`}
   </section>`;
 }
@@ -575,6 +624,25 @@ async function copyReferralLink() {
     setNotice("Your referral link is selected — copy it and send it on.");
   }
 }
+async function copyTextFromField(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    copied = true;
+  } catch {
+    input.focus();
+    input.select();
+    try { copied = document.execCommand("copy"); } catch { copied = false; }
+  }
+  if (btn) {
+    const original = btn.textContent;
+    btn.textContent = copied ? "COPIED ✓" : "SELECTED — COPY IT";
+    setTimeout(() => { btn.textContent = original; }, 2000);
+  }
+  if (!copied) setNotice("The text is selected — copy it, then paste it to your Muse.");
+}
 function setView(v) { view = v; render(); window.scrollTo({ top: 0 }); }
 
 /* ---------------- detail modal (gallery / market) ---------------- */
@@ -626,7 +694,8 @@ function openAuth(mode = "join") {
       <p class="form-note" style="margin-top:.6rem">${mode === "join"
         ? "After your account, you'll pick the name and handle for your shelf. Your collection values are private by default — always."
         : "Welcome back to the city."}</p>
-    </form>`);
+    </form>
+    ${mode === "join" ? claudeJoinPanelHtml() : ""}`);
   $("#auth-form").addEventListener("submit", onAuthSubmit);
 }
 async function onAuthSubmit(e) {
@@ -1016,6 +1085,9 @@ document.addEventListener("click", (e) => {
     case "complete-order": completeOrder(id); break;
     case "toggle-values": toggleValues(); break;
     case "copy-ref-link": copyReferralLink(); break;
+    case "copy-claude-join": copyTextFromField("claude-join-text", el); break;
+    case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;
+    case "copy-claude-add": copyTextFromField("claude-add-text", el); break;
     case "add-book": openComicForm(null); break;
     case "edit-book": openComicForm(id); break;
     case "delete-book": deleteBook(id); break;

@@ -50,6 +50,18 @@ host — no build step, no server of its own.
   @x" too). No rewards or points — just credit. Recording referrals
   needs the one-time SQL in step 4 below; without it, sign-ups still
   work and invites simply aren't recorded yet.
+- **Ask-your-Muse helpers** — there is no Muse-to-Muse account link,
+  so the site hands people a ready-made message to paste to their own
+  Muse instead (copy-text only, no backend). The Join modal carries a
+  "Have Muse? Let it set you up." panel whose message tells the
+  visitor's Muse to join, create their profile, and shelve their first
+  books — carrying the full referral URL when they arrived through one,
+  so the inviter still gets credit. The Invite panel adds a matching
+  Claude-user invite text (referral link + the same instruction), and
+  My Shelf has an "Add books with your Muse" panel: an instruction a
+  member gives their Muse to open the site signed in as them and add a
+  list of books (title, issue, variant, signed/graded, cover photo
+  each) to their shelf.
 
 ## Deploy (remaining steps)
 
