@@ -68,6 +68,38 @@ let busy = false;
 
 const profileById = (id) => profiles.find((p) => p.id === id) || null;
 
+/* ---------------- referrals ----------------
+   A member's personal link is <site>/?ref=<handle>. Arriving with a
+   ?ref= stores the handle; when that handle names a real collector the
+   join view credits them, and profile creation records referred_by
+   (column added by ../supabase/referrals.sql — until that SQL runs the
+   insert simply goes ahead without it, see onProfileSubmit). */
+const REF_STORAGE_KEY = "mcc_ref";
+let refHandle = null;        // handle stored from a ?ref= link, or null
+let referrerProfile = null;  // public_profiles row for refHandle, once loaded
+
+function captureReferral() {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get("ref");
+    if (fromUrl) {
+      const h = fromUrl.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+      if (h) { refHandle = h; localStorage.setItem(REF_STORAGE_KEY, h); return; }
+    }
+    refHandle = localStorage.getItem(REF_STORAGE_KEY) || null;
+  } catch { refHandle = null; }
+}
+function resolveReferrer() {
+  referrerProfile = refHandle ? (profiles.find((p) => p.handle === refHandle) || null) : null;
+  // You can't refer yourself.
+  if (referrerProfile && myProfile && referrerProfile.id === myProfile.id) referrerProfile = null;
+}
+function referralLinkFor(handle) {
+  return `${window.location.origin}${window.location.pathname}?ref=${encodeURIComponent(handle)}`;
+}
+function referralCountFor(collectorId) {
+  return profiles.filter((p) => p.referred_by && p.referred_by === collectorId).length;
+}
+
 /* ---------------- shared fragments ---------------- */
 function avatarHtml(p, size = "md") {
   const initial = (p.display_name || "?").trim()[0]?.toUpperCase() || "?";
@@ -82,15 +114,8 @@ function badgesHtml(c) {
   if (c.status === "wishlist") h += `<span class="badge">WISHLIST</span>`;
   return h;
 }
-function coverHtml(c, large = false) {
-  if (c.cover_url) {
-    return `<div class="cover">
-      <img class="photo" src="${esc(c.cover_url)}" alt="Cover of ${esc(c.title)} ${esc(c.issue)}" loading="lazy" decoding="async" />
-      <div class="photo-badges"><div class="badges">${badgesHtml(c)}</div></div>
-    </div>`;
-  }
-  return `<div class="cover tile ${large ? "large" : ""}" style="background:${esc(c.cover_color || "#FF2E88")}">
-    <div class="halftone"></div>
+function tileInnerHtml(c) {
+  return `<div class="halftone"></div>
     <div class="tile-top">
       <div class="tag-row">
         ${c.publisher ? `<span class="tag-pub">${esc(c.publisher)}</span>` : "<span></span>"}
@@ -102,8 +127,21 @@ function coverHtml(c, large = false) {
     <div class="tile-bottom">
       <span class="initials" aria-hidden="true">${esc(initialsOf(c.title))}</span>
       <div class="badges">${badgesHtml(c)}</div>
-    </div>
-  </div>`;
+    </div>`;
+}
+function coverHtml(c, large = false) {
+  if (c.cover_url) {
+    // The tile renders underneath the photo, so if the image ever fails
+    // to load (bad URL, file removed) the error handler in the init
+    // section drops the <img> and the book falls back to its colour tile
+    // instead of showing a broken-image icon to every visitor.
+    return `<div class="cover has-photo" data-large="${large ? "1" : ""}" style="background:${esc(c.cover_color || "#FF2E88")}">
+      ${tileInnerHtml(c)}
+      <img class="photo" src="${esc(c.cover_url)}" alt="Cover of ${esc(c.title)} ${esc(c.issue)}" loading="lazy" decoding="async" />
+      <div class="photo-badges"><div class="badges">${badgesHtml(c)}</div></div>
+    </div>`;
+  }
+  return `<div class="cover tile ${large ? "large" : ""}" style="background:${esc(c.cover_color || "#FF2E88")}">${tileInnerHtml(c)}</div>`;
 }
 function galleryCardHtml(c) {
   return `<article class="card">
@@ -187,6 +225,7 @@ async function loadMine() {
 async function refreshAll() {
   await loadPublic();
   await resolveMyProfile();
+  resolveReferrer();
   await loadMine();
 }
 
@@ -393,6 +432,30 @@ function viewProfileHtml(collectorId) {
 }
 
 /* ---------------- my shelf ---------------- */
+function invitePanelHtml(p) {
+  const link = referralLinkFor(p.handle);
+  const count = referralCountFor(p.id);
+  const shareText = `Join me on Magic City Culture — a Miami community for comic collectors. Shelve your books, browse every collection, and trade in the market: ${link}`;
+  return `<div class="values-panel">
+    <p class="vp-tag">INVITE A FRIEND</p>
+    <p class="vp-note" style="margin-top:.4rem">Referrals: ${count} collector${count === 1 ? "" : "s"} joined through your link.</p>
+    <div class="field" style="margin-top:.6rem"><label class="label" for="ref-link">Your referral link</label>
+      <div style="display:flex;gap:.5rem">
+        <input class="input" id="ref-link" style="flex:1" readonly value="${esc(link)}" aria-label="Your referral link" />
+        <button type="button" class="btn btn-blue" data-action="copy-ref-link">COPY</button>
+      </div>
+    </div>
+    <form id="invite-form">
+      <div class="field"><label class="label" for="invite-email">Friend's email</label>
+        <input class="input" id="invite-email" type="email" required placeholder="friend@example.com" /></div>
+      <div class="row-actions">
+        <button type="submit" class="btn btn-pink">SEND REFERRAL EMAIL</button>
+        <a class="btn btn-ghost" href="https://wa.me/?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">SHARE ON WHATSAPP</a>
+      </div>
+    </form>
+    <p class="vp-note">The email opens in your own mail app, from you — the site never sends mail for you.</p>
+  </div>`;
+}
 function viewShelfHtml() {
   if (!user) {
     return `<section class="block"><div class="center-note">
@@ -453,6 +516,7 @@ function viewShelfHtml() {
         ${p.show_values_publicly ? "MAKE MY VALUES PRIVATE AGAIN" : "MAKE MY VALUES PUBLIC"}
       </button>
     </div>
+    ${invitePanelHtml(p)}
     ${myComics.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Your shelf is empty — add your first book.</p>`}
   </section>`;
 }
@@ -485,6 +549,29 @@ function render() {
   }
   const groupToggle = $("#gallery-group");
   if (groupToggle) groupToggle.addEventListener("change", (e) => { galleryGroup = e.target.checked; render(); });
+  const inviteForm = $("#invite-form");
+  if (inviteForm) {
+    inviteForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const email = $("#invite-email").value.trim();
+      if (!email || !myProfile) return;
+      const link = referralLinkFor(myProfile.handle);
+      const subject = "Join me on Magic City Culture";
+      const body = `Hi!\n\nI'm inviting you to Magic City Culture — a Miami community for comic collectors. Shelve your own books, browse everyone's collections, and trade in the market.\n\nOpen your account with my referral link:\n${link}\n\nSee you in the city,\n${myProfile.display_name}`;
+      window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    });
+  }
+}
+async function copyReferralLink() {
+  const input = $("#ref-link");
+  if (!input) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    setNotice("Referral link copied — send it to a fellow collector.");
+  } catch {
+    input.select();
+    setNotice("Your referral link is selected — copy it and send it on.");
+  }
 }
 function setView(v) { view = v; render(); window.scrollTo({ top: 0 }); }
 
@@ -532,6 +619,7 @@ function openAuth(mode = "join") {
       <div class="field"><label class="label" for="auth-password">Password</label>
         <input class="input" id="auth-password" type="password" required autocomplete="${mode === "join" ? "new-password" : "current-password"}" minlength="6" /></div>
       <p class="form-error" id="auth-error"></p>
+      ${mode === "join" && referrerProfile ? `<p class="form-note" style="margin-bottom:.6rem">Invited by <strong>@${esc(referrerProfile.handle)}</strong> — they saved you a spot in the city.</p>` : ""}
       <button type="submit" class="btn btn-pink" style="width:100%">${mode === "join" ? "CREATE MY ACCOUNT" : "SIGN IN"}</button>
       <p class="form-note" style="margin-top:.6rem">${mode === "join"
         ? "After your account, you'll pick the name and handle for your shelf. Your collection values are private by default — always."
@@ -600,6 +688,7 @@ function openProfileForm() {
   openModal(`
     ${modalHead(p ? "EDIT YOUR PROFILE" : "CREATE YOUR COLLECTOR PROFILE")}
     <form id="profile-form">
+      ${!p && referrerProfile ? `<p class="form-note" style="margin-bottom:.6rem">Invited by <strong>@${esc(referrerProfile.handle)}</strong> — they'll get the credit when your shelf opens.</p>` : ""}
       <div class="field"><label class="label" for="pf-name">Display name</label>
         <input class="input" id="pf-name" required maxlength="60" value="${esc(p?.display_name || "")}" placeholder="e.g. Joshua" /></div>
       ${p ? "" : `<div class="field"><label class="label" for="pf-handle">Handle (your @name, lowercase)</label>
@@ -636,11 +725,23 @@ async function onProfileSubmit(e) {
     } else {
       const handle = $("#pf-handle").value.trim().toLowerCase();
       if (!handle) throw new Error("Pick a handle.");
-      const { error } = await sb.from("collectors").insert({ ...fields, handle, auth_user_id: user.id });
+      const payload = { ...fields, handle, auth_user_id: user.id };
+      if (referrerProfile) payload.referred_by = referrerProfile.id;
+      let { error } = await sb.from("collectors").insert(payload);
+      if (error && payload.referred_by && /referred_by|column|PGRST204/i.test(error.message || "")) {
+        // The referrals column isn't installed yet (supabase/referrals.sql
+        // not run) — an invite must never block a sign-up, so retry plain.
+        delete payload.referred_by;
+        ({ error } = await sb.from("collectors").insert(payload));
+      }
       if (error) {
         if (/duplicate|unique/i.test(error.message)) throw new Error("That handle is taken — try another.");
         throw error;
       }
+      // The invite has done its job; don't credit it to a later account
+      // created on this same device.
+      try { localStorage.removeItem(REF_STORAGE_KEY); } catch { /* ignore */ }
+      refHandle = null; referrerProfile = null;
       setNotice("Profile created — welcome to Magic City Culture! Add your first book from your shelf.");
     }
     closeModal();
@@ -912,6 +1013,7 @@ document.addEventListener("click", (e) => {
     case "buy": confirmBuy(id); break;
     case "complete-order": completeOrder(id); break;
     case "toggle-values": toggleValues(); break;
+    case "copy-ref-link": copyReferralLink(); break;
     case "add-book": openComicForm(null); break;
     case "edit-book": openComicForm(id); break;
     case "delete-book": deleteBook(id); break;
@@ -921,8 +1023,24 @@ document.querySelectorAll("#main-nav .nav-btn").forEach((b) => {
   b.addEventListener("click", () => setView({ kind: b.dataset.view }));
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+// Cover photos: if an image fails to load for any visitor (bad URL,
+// missing file), swap its card back to the colour tile rendered beneath
+// it rather than leaving a broken-image icon. Capture phase, because
+// resource error events do not bubble.
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!img || img.tagName !== "IMG" || !img.classList.contains("photo")) return;
+  const wrap = img.closest(".cover");
+  img.remove();
+  if (!wrap) return;
+  wrap.querySelector(".photo-badges")?.remove();
+  wrap.classList.remove("has-photo");
+  wrap.classList.add("tile");
+  if (wrap.dataset.large === "1") wrap.classList.add("large");
+}, true);
 
 async function boot() {
+  captureReferral();
   try {
     const { data } = await sb.auth.getSession();
     user = data.session?.user || null;

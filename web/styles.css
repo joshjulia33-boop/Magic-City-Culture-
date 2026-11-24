@@ -177,6 +177,18 @@ nav.main-nav { display: flex; gap: 0.5rem; padding-bottom: 0.75rem; }
 .cover.tile .tile-variant { font-size: 11px; font-weight: 600; margin-top: 0.4rem; line-height: 1.3; opacity: 0.95;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .cover.tile .initials { font-family: var(--font-display); font-size: 36px; opacity: 0.2; position: absolute; bottom: -0.25rem; right: 0; }
+
+/* cover with a photo: the colour tile layers sit under the <img> so a
+   failed image can fall back to the tile (see app.js error handler) */
+.cover.has-photo { color: #fff; }
+.cover.has-photo .halftone { position: absolute; inset: 0; opacity: 0.4; }
+.cover.has-photo .tag-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.25rem; }
+.cover.has-photo .tile-top { position: absolute; top: 0; left: 0; right: 0; padding: 0.75rem 0.75rem 0; }
+.cover.has-photo .tile-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0.75rem 0.75rem; }
+.cover.has-photo .tile-title { font-family: var(--font-display); font-size: 22px; line-height: 0.95; margin: 0.75rem 0 0; }
+.cover.has-photo .tile-variant { font-size: 11px; font-weight: 600; margin-top: 0.4rem; line-height: 1.3; opacity: 0.95;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.cover.has-photo .initials { font-family: var(--font-display); font-size: 36px; opacity: 0.2; position: absolute; bottom: -0.25rem; right: 0; }
 .badges { display: flex; flex-wrap: wrap; gap: 0.25rem; position: relative; }
 .badge { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 0.12rem 0.4rem; border-radius: 3px; background: #000; color: #fff; }
 .badge.signed { background: var(--blue); color: #000; }
