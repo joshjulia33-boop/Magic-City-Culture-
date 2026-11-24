@@ -37,6 +37,19 @@ host — no build step, no server of its own.
   value, add & edit books (including cover photo upload to the `covers`
   storage bucket), list a book for sale or unlist it, and the
   **show values publicly** toggle (off by default).
+- **Referrals** — every member gets a personal invite link,
+  `<site>/?ref=<handle>`, shown on My Shelf in an **Invite a friend**
+  panel with a copy button, a "send referral email" button (it opens the
+  member's own mail app with a pre-written invite — the site has no mail
+  server and never sends email itself), and a WhatsApp share link. The
+  panel also shows how many collectors joined through the member's link.
+  A visitor arriving with `?ref=<handle>` has it remembered; the Join
+  view and the profile form say "Invited by @handle" when that handle is
+  a real collector, and creating the profile records `referred_by` on
+  the new collector (a member's public profile then shows "Invited by
+  @x" too). No rewards or points — just credit. Recording referrals
+  needs the one-time SQL in step 4 below; without it, sign-ups still
+  work and invites simply aren't recorded yet.
 
 ## Deploy (remaining steps)
 
@@ -53,6 +66,11 @@ host — no build step, no server of its own.
    `update public.collectors set auth_user_id = '<his auth.users id>' where handle = 'joshua';`
    Until then his shelf is publicly browsable but nobody can edit it or
    see its values. There is deliberately no in-app way to claim it.
+4. Referrals (one-time): in the same SQL editor, run
+   `../supabase/referrals.sql` (after `schema.sql`). It adds the
+   nullable `collectors.referred_by` column and exposes it on the
+   `public_profiles` view, so invites can be recorded and counted.
+   Safe to re-run.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

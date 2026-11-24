@@ -409,6 +409,7 @@ function viewCollectorsHtml() {
 function viewProfileHtml(collectorId) {
   const p = profileById(collectorId);
   if (!p) return `<section class="block"><p class="empty">That collector isn't here anymore.</p></section>`;
+  const inviter = p.referred_by ? profileById(p.referred_by) : null;
   const books = gallery.filter((c) => c.collector_id === collectorId);
   const signed = books.filter((c) => c.is_signed).length;
   const exposedTotal = p.show_values_publicly
@@ -420,6 +421,7 @@ function viewProfileHtml(collectorId) {
       <div class="grow">
         <h2>${esc(p.display_name.toUpperCase())} ${p.is_founder ? '<span class="founder-tag">FOUNDER</span>' : ""}</h2>
         <p class="handle-line">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""} • Joined ${esc(joinedLabel(p.created_at))}</p>
+        ${inviter ? `<p class="handle-line">Invited by <button type="button" class="owner-link" data-action="goto-profile" data-id="${inviter.id}">@${esc(inviter.handle)}</button></p>` : ""}
         ${p.bio ? `<p style="margin:.4rem 0 0;font-size:14px;color:#c9c5ef">${esc(p.bio)}</p>` : ""}
       </div>
     </div>
