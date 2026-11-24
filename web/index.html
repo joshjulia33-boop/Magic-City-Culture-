@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Magic City Culture Community — a shared gallery for comic collectors. Browse every shelf, join, and put your own books up next to them." />
+    <link rel="icon" href="data:," />
+    <title>Magic City Culture Community</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- Logo: neon sunset over the Miami skyline, framed by two palm trees.
+         Recreated as inline SVG — the original logo image lives outside
+         this repo (the GitHub connection moves text files only). -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="mcc-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#b537f2" />
+          <stop offset="45%" stop-color="#ff2e88" />
+          <stop offset="78%" stop-color="#ff8a00" />
+          <stop offset="100%" stop-color="#ffd166" />
+        </linearGradient>
+        <linearGradient id="mcc-sea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#00d4ff" />
+          <stop offset="100%" stop-color="#0057b8" />
+        </linearGradient>
+        <clipPath id="mcc-clip"><circle cx="50" cy="50" r="50" /></clipPath>
+        <symbol id="mcc-logo" viewBox="0 0 100 100">
+          <g clip-path="url(#mcc-clip)">
+            <rect width="100" height="100" fill="url(#mcc-sky)" />
+            <circle cx="50" cy="56" r="17" fill="#ffe259" />
+            <circle cx="50" cy="56" r="17" fill="none" stroke="#fff3b0" stroke-width="1.5" opacity="0.7" />
+            <!-- skyline -->
+            <g fill="#12102e">
+              <rect x="26" y="52" width="6" height="22" />
+              <rect x="33" y="46" width="5" height="28" />
+              <rect x="39" y="56" width="7" height="18" />
+              <rect x="47" y="42" width="6" height="32" />
+              <rect x="54" y="50" width="5" height="24" />
+              <rect x="60" y="55" width="7" height="19" />
+              <rect x="68" y="48" width="5" height="26" />
+            </g>
+            <g fill="#ffd166" opacity="0.85">
+              <rect x="35" y="50" width="1.4" height="1.4" /><rect x="49" y="47" width="1.4" height="1.4" />
+              <rect x="50" y="53" width="1.4" height="1.4" /><rect x="62" y="59" width="1.4" height="1.4" />
+              <rect x="29" y="57" width="1.4" height="1.4" /><rect x="70" y="52" width="1.4" height="1.4" />
+            </g>
+            <!-- ocean -->
+            <rect y="74" width="100" height="26" fill="url(#mcc-sea)" />
+            <g stroke="#aef4ff" stroke-width="1.4" opacity="0.75" stroke-linecap="round">
+              <path d="M14 81 h14" /><path d="M38 86 h18" /><path d="M64 81 h16" />
+              <path d="M24 92 h16" /><path d="M56 93 h20" />
+            </g>
+            <!-- palm trees -->
+            <g stroke="#0d0b24" fill="none" stroke-linecap="round">
+              <path d="M17 76 C15 62 14 50 19 39" stroke-width="3.4" />
+              <g stroke-width="2.6">
+                <path d="M19 39 C13 33 7 32 3 34" />
+                <path d="M19 39 C16 31 11 28 6 28" />
+                <path d="M19 39 C20 30 24 26 29 25" />
+                <path d="M19 39 C25 34 30 34 34 37" />
+                <path d="M19 39 C23 38 27 40 30 44" />
+              </g>
+              <path d="M84 76 C86 62 87 50 82 39" stroke-width="3.4" />
+              <g stroke-width="2.6">
+                <path d="M82 39 C88 33 94 32 98 34" />
+                <path d="M82 39 C85 31 90 28 95 28" />
+                <path d="M82 39 C81 30 77 26 72 25" />
+                <path d="M82 39 C76 34 71 34 67 37" />
+                <path d="M82 39 C78 38 74 40 71 44" />
+              </g>
+            </g>
+          </g>
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="site">
+      <div class="wrap">
+        <div class="header-row">
+          <div class="logo-badge" aria-hidden="true"><svg viewBox="0 0 100 100"><use href="#mcc-logo" /></svg></div>
+          <div class="brand">
+            <div class="brand-name neon-text">MAGIC CITY CULTURE</div>
+            <div class="brand-sub">COMMUNITY</div>
+          </div>
+          <div class="header-actions" id="header-actions"></div>
+        </div>
+        <nav class="main-nav" aria-label="Community sections" id="main-nav">
+          <button type="button" class="nav-btn" data-view="gallery" aria-pressed="true">GALLERY</button>
+          <button type="button" class="nav-btn" data-view="market" aria-pressed="false">MARKET</button>
+          <button type="button" class="nav-btn" data-view="collectors" aria-pressed="false">COLLECTORS</button>
+          <button type="button" class="nav-btn" data-view="shelf" aria-pressed="false">MY SHELF</button>
+        </nav>
+      </div>
+    </header>
+
+    <div class="wrap"><div id="notice-slot"></div></div>
+    <main class="wrap" id="app" aria-live="polite">
+      <p class="empty">Loading the community shelves…</p>
+    </main>
+
+    <footer class="site">
+      <div class="wrap">
+        Magic City Culture Community — Miami, FL. Every collector. One city.<br />
+        Collection values stay private unless a collector chooses to share them. The market takes no payments — members arrange handoff between themselves.
+      </div>
+    </footer>
+
+    <div id="modal-slot"></div>
+
+    <script src="./config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
