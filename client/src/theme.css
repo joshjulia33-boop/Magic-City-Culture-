@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+@import "tailwindcss-safe-area";
+
+@theme {
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 14px;
+  --text-sm--line-height: 20px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 18px;
+  --text-lg--line-height: 28px;
+  --text-xl: 20px;
+  --text-xl--line-height: 28px;
+  --text-2xl: 24px;
+  --text-2xl--line-height: 32px;
+  --text-3xl: 30px;
+  --text-3xl--line-height: 36px;
+  --text-4xl: 36px;
+  --text-4xl--line-height: 40px;
+  --text-5xl: 48px;
+  --text-5xl--line-height: 52px;
+  --font-display: "Archivo Black", "Arial Black", system-ui, sans-serif;
+  --font-sans: "Archivo", system-ui, sans-serif;
+}
+
+:root {
+  color-scheme: dark;
+  /* Magic City Culture is a neon-night brand in both modes: deep indigo
+     night sky, neon pink primary, electric blue secondary. */
+  --bg: #12102e;
+  --surface: #1e1a45;
+  --surface-alt: #282157;
+  --text: #f5f2ff;
+  --dim: #a7a3cc;
+  --border: #3a3373;
+  --accent: #ff2e88;
+  --accent-blue: #00d4ff;
+  --accent-orange: #ff8a00;
+  --radius: 12px;
+  --space-surface: var(--surface);
+  --space-surface-alt: var(--surface-alt);
+  --space-muted: var(--dim);
+  --space-border: var(--border);
+  --space-accent: var(--accent);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.halftone {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.16) 1px, transparent 1.1px);
+  background-size: 9px 9px;
+}
+
+.neon-text {
+  text-shadow: 0 0 18px rgba(255, 46, 136, 0.55), 0 0 42px rgba(0, 212, 255, 0.3);
+}
+
+/* Phone tap targets: at least 32px tall. */
+@layer base {
+  button, [role="button"], select, summary, input:not([type="checkbox"], [type="radio"]) {
+    min-height: 2rem;
+  }
+}
