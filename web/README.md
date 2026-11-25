@@ -60,11 +60,7 @@ host — no build step, no server of its own.
   option: the Claude-user invite text (the member's referral link + an
   instruction telling the friend's Muse to join through that exact
   link, create their profile, and shelve their first books), so the
-  inviter still gets credit. Separately, My Shelf has an "Add books
-  with your Muse" panel (about adding books, not inviting): an
-  instruction a member gives their Muse to open the site signed in as
-  them and add a list of books (title, issue, variant, signed/graded,
-  cover photo each) to their shelf.
+  inviter still gets credit.
 
 ## Deploy (remaining steps)
 

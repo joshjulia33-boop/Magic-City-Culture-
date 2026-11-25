@@ -112,26 +112,9 @@ function referralCountFor(collectorId) {
    on the site — the panel on My Shelf — and its second option hands the
    member a ready-made message (carrying their referral link) for a
    friend to paste to their own Muse. Copy-text only — no new backend. */
-const SITE_URL = "https://magic-city-culture.vercel.app/";
 function claudeInviteText(link) {
   return `Join me on Magic City Culture — a Miami community for comic collectors: ${link}\n\nGot Muse? Paste this to it and it'll set you up:\n"Join Magic City Culture at ${link} — I was invited through this link, so please open this exact address. Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf."`;
 }
-function claudeAddBooksText() {
-  return `Open Magic City Culture at ${SITE_URL} and sign in as me. Then add books to my shelf — for each book I'll give you the title, the issue, the variant or edition, whether it's signed or graded (and the grade), and a cover photo. Add each book with all of those details and upload its cover photo, then tell me when my shelf is updated.
-
-My books:
-1. `;
-}
-function claudeShelfPanelHtml() {
-  return `<div class="values-panel">
-    <p class="vp-tag">ADD BOOKS WITH YOUR CLAUDE</p>
-    <p class="vp-note" style="margin-top:.4rem">Hand your own Muse this instruction plus your list of books, and it'll add them to this shelf for you — cover photos included.</p>
-    <div class="field" style="margin-top:.6rem"><label class="label" for="claude-add-text">Instruction for your Muse</label>
-      <textarea class="input copy-text" id="claude-add-text" rows="6" readonly>${esc(claudeAddBooksText())}</textarea></div>
-    <button type="button" class="btn btn-blue" data-action="copy-claude-add">COPY THE INSTRUCTION</button>
-  </div>`;
-}
-
 /* ---------------- shared fragments ---------------- */
 function avatarHtml(p, size = "md") {
   const initial = (p.display_name || "?").trim()[0]?.toUpperCase() || "?";
@@ -559,7 +542,6 @@ function viewShelfHtml() {
       </button>
     </div>
     ${invitePanelHtml(p)}
-    ${claudeShelfPanelHtml()}
     ${myComics.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Your shelf is empty — add your first book.</p>`}
   </section>`;
 }
@@ -1421,7 +1403,6 @@ document.addEventListener("click", (e) => {
     case "toggle-values": toggleValues(); break;
     case "copy-ref-link": copyReferralLink(); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;
-    case "copy-claude-add": copyTextFromField("claude-add-text", el); break;
     case "add-book": openComicForm(null); break;
     case "search-add": addFromResearch(Number(el.dataset.idx)); break;
     case "search-add-community": addFromCommunity(id); break;
