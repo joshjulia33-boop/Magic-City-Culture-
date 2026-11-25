@@ -473,7 +473,6 @@ function viewProfileHtml(collectorId) {
 function invitePanelHtml(p) {
   const link = referralLinkFor(p.handle);
   const count = referralCountFor(p.id);
-  const shareText = `Join me on Magic City Culture — a Miami community for comic collectors. Shelve your books, browse every collection, and trade in the market: ${link}`;
   return `<div class="values-panel">
     <p class="vp-tag">INVITE A COLLECTOR</p>
     <p class="vp-note" style="margin-top:.4rem">One invite, two ways to send it — either way, you get the credit when they join. Referrals: ${count} collector${count === 1 ? "" : "s"} joined through your link.</p>
@@ -489,7 +488,6 @@ function invitePanelHtml(p) {
         <input class="input" id="invite-email" type="email" required placeholder="friend@example.com" /></div>
       <div class="row-actions">
         <button type="submit" class="btn btn-pink">SEND REFERRAL EMAIL</button>
-        <a class="btn btn-ghost" href="https://wa.me/?text=${encodeURIComponent(shareText)}" target="_blank" rel="noopener">SHARE ON WHATSAPP</a>
       </div>
     </form>
     <p class="vp-note">The email opens in your own mail app, from you — the site never sends mail for you.</p>

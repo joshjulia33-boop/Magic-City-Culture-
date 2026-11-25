@@ -42,8 +42,8 @@ host — no build step, no server of its own.
   Collector** panel — one invite with two options under it: (1) share
   the link, with a copy-link button, a "send referral email" button (it
   opens the member's own mail app with a pre-written invite — the site
-  has no mail server and never sends email itself), and a WhatsApp share
-  link; and (2) a copy-the-message option for friends who have Muse
+  has no mail server and never sends email itself); and (2) a
+  copy-the-message option for friends who have Muse
   (see below). The panel also shows how many collectors joined through
   the member's link.
   A visitor arriving with `?ref=<handle>` has it remembered; the Join
