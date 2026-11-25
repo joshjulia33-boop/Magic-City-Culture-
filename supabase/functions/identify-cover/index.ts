@@ -47,7 +47,7 @@
 // ============================================================================
 
 const PRIMARY_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash";
-const FALLBACK_MODELS: string[] = [];
+const FALLBACK_MODELS = ["gemini-3.8-flash-lite", "gemini-3.5-flash", "gemini-3-flash", "gemini-2.5-flash-lite"];
 const COVER_TYPES = [
   "Standard", "Metal", "Leather", "Foil", "Holographic", "Chromium",
   "Prismatic", "Acetate", "Lenticular", "Glow-in-the-Dark", "Embossed",
@@ -63,7 +63,7 @@ const cors = {
 };
 
 const EMPTY = {
-  ok: false, message: "", sourceName: "", confidence: "",
+  ok: false, message: "", sourceName: "", confidence: "", model: "",
   title: "", issue: "", publisher: "", variant: "", year: "", grade: "",
   certNumber: "", isSigned: false, isRemarqued: false, coverTypes: [] as string[],
   alternates: [] as Record<string, string>[],
@@ -136,32 +136,47 @@ async function gemini(parts: Part[], opts: { search?: boolean } = {}): Promise<R
       },
     };
     if (opts.search) body.tools = [{ google_search: {} }];
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
-          body: JSON.stringify(body),
-        },
-      );
-      if (!res.ok) {
-        const snippet = (await res.text().catch(() => "")).slice(0, 300);
-        console.error(`identify-cover: gemini ${model} -> HTTP ${res.status}: ${snippet}`);
-        lastErr = new Error(`gemini_${res.status}`);
-        continue;
+    // Up to 3 attempts per model: a 503 (overloaded) or 429 (rate limit)
+    // is usually a temporary spike, so wait and retry before moving on
+    // to the next model; any other rejection moves on immediately.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!res.ok) {
+          const snippet = (await res.text().catch(() => "")).slice(0, 300);
+          console.error(`identify-cover: gemini ${model} -> HTTP ${res.status}: ${snippet}`);
+          lastErr = new Error(`gemini_${res.status}`);
+          if ((res.status === 503 || res.status === 429) && attempt < 2) {
+            await new Promise((r) => setTimeout(r, attempt === 0 ? 1500 : 4000));
+            continue;
+          }
+          break;
+        }
+        const data = await res.json();
+        const text = (data?.candidates?.[0]?.content?.parts ?? [])
+          .map((p: { text?: string }) => p?.text ?? "")
+          .join("");
+        const parsed = parseJson(text);
+        if (parsed) {
+          EMPTY.model = model;
+          console.log(`identify-cover: gemini ${model} answered`);
+          return parsed;
+        }
+        console.error(`identify-cover: gemini ${model} returned unparseable output`);
+        lastErr = new Error("gemini_unparseable");
+        break;
+      } catch (e) {
+        console.error(`identify-cover: gemini ${model} request failed: ${e instanceof Error ? e.message : String(e)}`);
+        lastErr = e instanceof Error ? e : new Error(String(e));
+        break;
       }
-      const data = await res.json();
-      const text = (data?.candidates?.[0]?.content?.parts ?? [])
-        .map((p: { text?: string }) => p?.text ?? "")
-        .join("");
-      const parsed = parseJson(text);
-      if (parsed) return parsed;
-      console.error(`identify-cover: gemini ${model} returned unparseable output`);
-      lastErr = new Error("gemini_unparseable");
-    } catch (e) {
-      console.error(`identify-cover: gemini ${model} request failed: ${e instanceof Error ? e.message : String(e)}`);
-      lastErr = e instanceof Error ? e : new Error(String(e));
     }
   }
   throw lastErr ?? new Error("gemini_failed");
