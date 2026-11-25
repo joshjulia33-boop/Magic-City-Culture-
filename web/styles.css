@@ -21,7 +21,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+/* The phone-fit guarantee: nothing may render wider than the screen. */
+html, body { margin: 0; padding: 0; overflow-x: clip; max-width: 100%; }
 body {
   background: var(--bg);
   color: var(--text);
@@ -29,6 +30,14 @@ body {
   font-size: 16px;
   line-height: 1.45;
 }
+/* Faded backdrop of the final logo artwork, behind everything
+   (background image is set from logo.js by app.js). */
+.site-backdrop {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center 15%;
+  opacity: 0.14;
+}
+header.site, main.wrap, footer.site, body > .wrap { position: relative; z-index: 1; }
 button, input, select, textarea { font-family: inherit; }
 button { cursor: pointer; }
 button:disabled { opacity: 0.55; cursor: default; }
@@ -50,26 +59,42 @@ header.site {
   background: rgba(18, 16, 46, 0.95);
   backdrop-filter: blur(6px);
 }
-.header-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0; }
+.header-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.6rem 0; min-width: 0; }
+/* The final comic-cover logo, on the LEFT of the header: a small
+   rectangular cover thumbnail (the artwork itself is portrait 2:3). */
 .logo-badge {
-  width: 2.5rem; height: 2.5rem; border-radius: 9999px; flex: none;
-  border: 1px solid var(--accent); overflow: hidden; background: #0d0b24;
+  width: 2rem; height: 2.75rem; flex: none; object-fit: cover;
+  border-radius: 4px; border: 2px solid var(--accent); background: #0d0b24;
 }
-.logo-badge svg, .hero-logo svg { display: block; width: 100%; height: 100%; }
-.brand { line-height: 1; }
-.brand .brand-name { font-family: var(--font-display); font-size: 15px; letter-spacing: 0.04em; }
-.brand .brand-sub { font-size: 11px; font-weight: 700; letter-spacing: 0.25em; color: var(--blue); margin-top: 4px; }
-.header-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
-nav.main-nav { display: flex; gap: 0.5rem; padding-bottom: 0.75rem; }
+.brand { line-height: 1; min-width: 0; flex: 1; }
+.brand .brand-name {
+  font-weight: 800; font-size: 11px; letter-spacing: 0.14em;
+  color: var(--accent-soft); white-space: nowrap;
+}
+.brand .brand-sub {
+  font-family: var(--font-display); font-size: 17px; letter-spacing: 0.02em;
+  color: var(--text); margin-top: 4px; white-space: nowrap;
+}
+.header-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; flex: none; }
+/* Section tabs: a square bordered box around each word. Two rows of
+   three on phones, one row of five from 560px up. Each label is measured
+   on screen by app.js and shrunk until it fits inside its box, and the
+   box clips overflow — no word can clip, split mid-word, or spill. */
+nav.main-nav {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.375rem; padding-bottom: 0.6rem;
+}
+@media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 .nav-btn {
-  flex: 1; border-radius: 9999px; padding: 0.6rem 0.75rem;
-  font-family: var(--font-display); font-size: 13px; letter-spacing: 0.03em;
+  min-width: 0; overflow: hidden; white-space: nowrap; text-align: center;
+  border-radius: 8px; padding: 0.45rem 0.2rem; line-height: 1.15;
+  font-family: var(--font-display); font-size: 13px;
   border: 2px solid var(--border); background: var(--surface); color: var(--dim);
-  transition: colors 0.15s;
 }
 .nav-btn[aria-pressed="true"] {
   background: var(--accent); color: #fff; border-color: #000;
-  box-shadow: 0 0 16px rgba(255, 46, 136, 0.5);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .me-chip {
   display: flex; align-items: center; gap: 0.5rem;
@@ -115,18 +140,27 @@ nav.main-nav { display: flex; gap: 0.5rem; padding-bottom: 0.75rem; }
 .notice button { background: none; border: none; color: var(--text); font-family: var(--font-display); font-size: 14px; padding: 0 0.25rem; }
 
 /* ---------- hero ---------- */
-.hero { padding: 1.5rem 0 0.5rem; display: flex; flex-direction: column; align-items: center; text-align: center; }
+/* The final comic-cover logo on the left, the name beside it — stacked
+   and centred only on very narrow phones, matching the rebuild. */
+.hero { padding: 1.5rem 0 0.5rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 1rem; }
+@media (min-width: 480px) { .hero { flex-direction: row; align-items: flex-start; text-align: left; gap: 1.5rem; } }
 .hero-logo {
-  width: 11rem; height: 11rem; border-radius: 9999px; overflow: hidden;
-  border: 4px solid var(--accent); background: #0d0b24;
+  width: 7rem; flex: none; aspect-ratio: 2 / 3; object-fit: cover;
+  border-radius: 8px; border: 4px solid var(--accent); background: #0d0b24;
   box-shadow: 0 0 45px rgba(255, 46, 136, 0.45);
 }
-@media (min-width: 640px) { .hero-logo { width: 14rem; height: 14rem; } }
-.hero h1 { font-family: var(--font-display); font-size: 30px; line-height: 1.02; margin: 1.25rem 0 0; }
+@media (min-width: 640px) { .hero-logo { width: 13rem; } }
+.hero .hero-text { min-width: 0; flex: 1; }
+.hero .presents { font-size: 11px; font-weight: 800; letter-spacing: 0.22em; color: var(--accent-soft); margin: 0; }
+@media (min-width: 640px) { .hero .presents { font-size: 12px; letter-spacing: 0.28em; } }
+.hero h1 { font-family: var(--font-display); font-size: 30px; line-height: 1.02; margin: 0.5rem 0 0; }
 @media (min-width: 640px) { .hero h1 { font-size: 48px; } }
-.hero h1 .blue { color: var(--blue); }
+.hero .tagline { font-family: var(--font-display); font-size: 16px; line-height: 1.15; margin: 0.6rem 0 0; }
+@media (min-width: 640px) { .hero .tagline { font-size: 24px; } }
+.hero .tagline .blue { color: var(--blue); }
 .hero .lede { margin-top: 0.75rem; max-width: 36rem; font-size: 15px; color: #c9c5ef; }
 .stat-chips { margin-top: 1.25rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; font-size: 13px; font-weight: 700; }
+@media (min-width: 480px) { .stat-chips { justify-content: flex-start; } }
 .stat-chips span { border-radius: 9999px; background: var(--surface); border: 1px solid var(--border); padding: 0.35rem 0.75rem; }
 
 /* ---------- filters ---------- */

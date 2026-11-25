@@ -1,4 +1,4 @@
-// Magic City Culture Community — front-end configuration.
+// Magic City Culture presents The Collector's Hub — front-end configuration.
 // The publishable key is designed to be public: it only ever reaches what
 // the database's row-level security allows (see ../supabase/schema.sql).
 // There is deliberately no secret key here — none exists for this site.

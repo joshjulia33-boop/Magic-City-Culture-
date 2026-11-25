@@ -1,4 +1,4 @@
-# Magic City Culture Community — static front end
+# Magic City Culture presents The Collector's Hub — static front end
 
 A dependency-light static site (plain HTML/CSS/JS + supabase-js from CDN)
 for the Magic City Culture collector community, backed by the Supabase

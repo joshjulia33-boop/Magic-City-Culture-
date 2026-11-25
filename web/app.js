@@ -1,5 +1,5 @@
 "use strict";
-/* Magic City Culture Community — static front end.
+/* Magic City Culture presents The Collector's Hub — static front end.
    Talks straight to Supabase with the publishable key; every privacy rule
    lives in the database (see ../supabase/schema.sql). Values are only ever
    read from comic_values, which row-level security restricts to the owner,
@@ -354,15 +354,19 @@ function viewGalleryHtml() {
   }
   return `
   <section class="hero">
-    <div class="hero-logo" aria-hidden="true"><svg viewBox="0 0 100 100"><use href="#mcc-logo" /></svg></div>
-    <h1 class="neon-text">EVERY COLLECTOR.<br /><span class="blue">ONE CITY.</span></h1>
-    <p class="lede">A shared gallery for comic collectors — browse every shelf in the community, then join and put your own books up next to them.</p>
-    <div class="stat-chips">
-      <span>${profiles.length} collectors</span>
-      <span>${gallery.length} books shelved</span>
-      <span>${signedCount} signed</span>
-      <span>${withCovers} with cover art</span>
-      <span>${forSaleCount} for sale</span>
+    <img class="hero-logo" src="${window.MCC_LOGO || ""}" alt="Magic City Culture — comic-cover logo: a caped hero on the beach looking across the water at the Miami skyline at sunset, palm trees and a dock, MAGIC CITY CULTURE in pink comic lettering" />
+    <div class="hero-text">
+      <p class="presents">MAGIC CITY CULTURE PRESENTS</p>
+      <h1 class="neon-text">THE COLLECTOR'S HUB</h1>
+      <p class="tagline">EVERY COLLECTOR. <span class="blue">ONE CITY.</span></p>
+      <p class="lede">A shared gallery for comic collectors — browse every shelf in the community, then join and put your own books up next to them.</p>
+      <div class="stat-chips">
+        <span>${profiles.length} collectors</span>
+        <span>${gallery.length} books shelved</span>
+        <span>${signedCount} signed</span>
+        <span>${withCovers} with cover art</span>
+        <span>${forSaleCount} for sale</span>
+      </div>
     </div>
   </section>
   <section>
@@ -1463,6 +1467,41 @@ document.addEventListener("error", (e) => {
   wrap.classList.add("tile");
   if (wrap.dataset.large === "1") wrap.classList.add("large");
 }, true);
+
+/* ---------------- branding: final logo, backdrop, label fit ----------------
+   The final comic-cover logo ships in logo.js as window.MCC_LOGO. Set it
+   as the header mark and the faded page backdrop, and measure the tab
+   and brand labels on screen, shrinking each until it fits inside its
+   box — the same guarantee the Collector's Hub rebuild uses, so no word
+   clips, splits mid-word, or spills at any phone width. */
+(function initBranding() {
+  if (window.MCC_LOGO) {
+    const backdrop = $("#site-backdrop");
+    if (backdrop) backdrop.style.backgroundImage = `url(${window.MCC_LOGO})`;
+    document.querySelectorAll("img[data-mcc-logo]").forEach((img) => { img.src = window.MCC_LOGO; });
+  }
+  function fitText(el, maxPx, minPx) {
+    if (!el) return;
+    let size = maxPx;
+    el.style.fontSize = `${size}px`;
+    while (size > minPx && el.scrollWidth > el.clientWidth + 1) {
+      size -= 0.5;
+      el.style.fontSize = `${size}px`;
+    }
+  }
+  function fitBranding() {
+    document.querySelectorAll("#main-nav .nav-btn").forEach((b) => fitText(b, 13, 7.5));
+    fitText($(".brand .brand-name"), 11, 6);
+    fitText($(".brand .brand-sub"), 17, 9);
+  }
+  fitBranding();
+  if (document.fonts?.ready) document.fonts.ready.then(fitBranding);
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(fitBranding, 120);
+  });
+})();
 
 async function boot() {
   captureReferral();
