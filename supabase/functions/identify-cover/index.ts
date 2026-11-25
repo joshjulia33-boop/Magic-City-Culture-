@@ -46,8 +46,8 @@
 // form falls back to manual entry with an honest status line.
 // ============================================================================
 
-const PRIMARY_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-2.5-flash";
-const FALLBACK_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"];
+const PRIMARY_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.8-flash";
+const FALLBACK_MODELS: string[] = [];
 const COVER_TYPES = [
   "Standard", "Metal", "Leather", "Foil", "Holographic", "Chromium",
   "Prismatic", "Acetate", "Lenticular", "Glow-in-the-Dark", "Embossed",
