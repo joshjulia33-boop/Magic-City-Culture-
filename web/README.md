@@ -38,26 +38,27 @@ host — no build step, no server of its own.
   phone opens its camera) and **Pick a photo** (gallery/files). It is the
   only photo-identification control on the site, and because add and edit
   share the one form, it appears in both modes and nowhere else. Taking
-  or picking a photo runs two passes **in parallel**, and each fills only
-  fields that are still empty — nothing is ever auto-saved, and the photo
-  becomes the book's cover on save exactly as before:
-  1. **On-device OCR** (Tesseract.js, downscaled canvas) — printed titles
-     and slab labels: title, issue, grader + grade.
-  2. **AI artwork identification** — the photo (downscaled to a 1024px
-     JPEG) goes to the `identify-cover` Supabase Edge Function
-     (`../supabase/functions/identify-cover/`), which looks at the
-     artwork itself with a vision model: printed details, slab label,
-     signed/remarque, cover types. When there is **no printed title —
-     a virgin cover** — it describes the artwork and runs one
-     search-grounded match against comic databases and catalogues
-     (GCD, Comic Vine, League of Comic Geeks, retailer/publisher
-     listings), stopping at the first strong, source-backed match and
-     naming that source. No genuine match = the form stays empty with
-     an honest no-match line; low-confidence matches are flagged.
-     The AI result is applied the moment it lands, not after OCR.
-  Until deploy step 7 below is done, pass 2 is simply unavailable (404 /
-  503 from the functions endpoint) and the status line says artwork
-  matching "isn't switched on yet" — OCR keeps working regardless.
+  or picking a photo sends it (downscaled to a 1024px JPEG) to the
+  `identify-cover` Supabase Edge Function
+  (`../supabase/functions/identify-cover/`), which identifies the book
+  from the artwork itself: a vision pass describes the cover and notes
+  the physical copy's details (slab grader/grade/cert, signed, remarque,
+  cover types), then a search-grounded pass looks the artwork up on the
+  web — comic databases and cover catalogues (GCD, Comic Vine, League
+  of Comic Geeks, publisher catalogues, retailer variant listings, eBay
+  listings) — stopping at the first strong, source-backed match and
+  naming that source. That is also how **virgin covers** with no title
+  on them are identified. The best match fills only fields that are
+  still empty; up to two close alternates are offered as tappable
+  choices under the result. No genuine match = the form stays empty
+  with an honest no-match line; low-confidence matches are flagged.
+  Nothing is ever auto-saved, and the photo becomes the book's cover on
+  save exactly as before. There is deliberately **no on-device OCR**:
+  letters read off stylised cover art are gibberish, not an
+  identification, so the form never fills from them.
+  Until deploy step 7 below is done, identification is simply
+  unavailable (404 / 503 from the functions endpoint) and the status
+  line says so — manual entry always works.
 - **My Shelf** — the member's own books and their private numbers from
   `comic_values` (owner-only in the database): totals paid / current
   value, add & edit books (including cover photo upload to the `covers`
@@ -150,8 +151,15 @@ host — no build step, no server of its own.
       (Optional: `GEMINI_MODEL` overrides the default
       `gemini-2.5-flash`.)
    Nothing else changes: the form already calls the function and
-   degrades honestly until it exists — books save, OCR reads printed
-   titles/labels, and only the artwork-matching pass waits on this step.
+   degrades honestly until it exists — books save, and only the
+   identification itself waits on this step.
+   **Troubleshooting:** if every photo comes back "couldn't be read",
+   open the function's **Logs** in the dashboard — the function logs
+   the exact Gemini error (HTTP status + provider message) for each
+   failed call. The usual causes are a `GEMINI_API_KEY` secret that
+   isn't a valid AI Studio key, the Generative Language API not being
+   enabled for the key's project, or an exhausted free-tier quota.
+   Re-paste this file's contents and redeploy after fixing the secret.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

@@ -1065,7 +1065,7 @@ function comicFormHtml(c, prefill = null) {
     ${prefill ? `<p class="scan-status" style="margin:0 0 .75rem">Pre-filled from Book Search — check it over, then save.</p>` : ""}
     <section class="find-book" aria-labelledby="cf-find-book">
       <span class="label" id="cf-find-book">Find your book</span>
-      <p class="form-note" style="margin-bottom:.6rem">Take a photo of the cover — or of the slab label — and the site tries to identify the book and fill in what it finds. It reads printed titles and labels, and for a cover with no title on it (a virgin cover) it tries to match the artwork itself. Nothing is saved until you check it over and save.${c?.cover_url ? " A cover photo is already set — a new photo replaces it." : ""} The photo becomes the book's cover when you save.</p>
+      <p class="form-note" style="margin-bottom:.6rem">Take a photo of the cover — or of the slab label — and the site searches the web for that cover, identifies the book, and fills in what it finds. The match is made from the artwork itself, so even a cover with no title on it (a virgin cover) can be found. Nothing is saved until you check it over and save.${c?.cover_url ? " A cover photo is already set — a new photo replaces it." : ""} The photo becomes the book's cover when you save.</p>
       <div class="photo-actions">
         <label class="btn btn-pink photo-btn" for="cf-photo-camera">\U0001F4F7 Take a photo</label>
         <label class="btn btn-blue photo-btn" for="cf-photo-pick">Pick a photo</label>
@@ -1074,6 +1074,7 @@ function comicFormHtml(c, prefill = null) {
       <input class="photo-input" id="cf-photo-pick" type="file" accept="image/*" />
       ${c?.cover_url ? `<img id="cf-photo-preview" class="photo-preview" alt="Cover photo for this book" src="${esc(c.cover_url)}" />` : `<img id="cf-photo-preview" class="photo-preview" alt="Cover photo for this book" hidden />`}
       <p class="scan-status" id="cf-scan-status" role="status" hidden></p>
+      <div id="cf-match-alts" class="filter-row" style="margin-top:.5rem" hidden></div>
     </section>
     <div class="field"><label class="label" for="cf-title">Title *</label>
       <input class="input" id="cf-title" required maxlength="160" value="${esc(c?.title || prefill?.title || "")}" /></div>
@@ -1231,93 +1232,13 @@ async function onComicSubmit(e) {
   }
 }
 
-/* ---------------- cover photo scan (on-device OCR) ----------------
-   When a member picks a cover photo, read it right in the browser with
-   Tesseract.js and pre-fill title / issue / grade from what it says —
-   graded slab labels (CGC / CBCS / PGX) are clean print and read best;
-   stylised cover lettering can misread, so nothing is ever saved by the
-   scan: the member checks and corrects, then saves as usual. Fields the
-   member already typed in are never overwritten, and the photo itself
-   still becomes the cover through the normal upload on save. */
-const SCAN_BOILER = /CGC|CBCS|PGX|MARVEL|DC\s+COMICS|IMAGE\s+COMICS|COMICS\s+GROUP|UNIVERSAL|SIGNATURE|QUALIFIED|RESTORED|WHITE\s+PAGES|YELLOW\s+PAGES|OFF-WHITE|APPROVED\s+BY|COMICS\s+CODE|PRINTED\s+IN|MADE\s+IN/i;
-const SCAN_DATE = /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\b|\b(19|20)\d{2}\b/i;
-
-function scanLines(text) {
-  return String(text || "")
-    .split(/\r?\n/)
-    .map((l) => l.replace(/[|_~^`]+/g, " ").replace(/\s+/g, " ").trim())
-    .filter((l) => /[A-Za-z0-9]/.test(l));
-}
-function scanFindGrade(text) {
-  const up = String(text || "").toUpperCase();
-  const gm = up.match(/\b(CGC|CBCS|PGX)\b/);
-  if (!gm) return "";
-  const nums = [];
-  const re = /\b(10\.0|[0-9]\.\d)\b/g;
-  let m;
-  while ((m = re.exec(up))) nums.push({ v: m[1], i: m.index });
-  if (!nums.length) return "";
-  // The grade printed closest to the grader's name is the book's grade.
-  nums.sort((a, b) => Math.abs(a.i - gm.index) - Math.abs(b.i - gm.index));
-  return `${gm[1]} ${nums[0].v}`;
-}
-function scanFindIssue(text, titleGuess) {
-  const up = String(text || "").toUpperCase();
-  const m = up.match(/#\s*(\d{1,4})\b/) || up.match(/\bNO\.?\s*(\d{1,4})\b/) || up.match(/\bISSUE\s*#?\s*(\d{1,4})\b/);
-  if (m) return `#${m[1]}`;
-  // Fallback: a lone number on the title's line, or a short line that is
-  // just a number (corner boxes). Never a barcode run or a decimal.
-  const key = (titleGuess || "").toUpperCase().replace(/[^A-Z ]/g, "").trim().split(" ")[0];
-  for (const line of scanLines(up)) {
-    if (/\d{6,}/.test(line)) continue;
-    const nm = line.match(/\b(\d{1,3})\b/);
-    if (!nm) continue;
-    if (key && line.includes(key)) return `#${nm[1]}`;
-    if (line.replace(/[^0-9]/g, "") === nm[1] && line.length <= 8) return `#${nm[1]}`;
-  }
-  return "";
-}
-function scanCleanTitle(raw) {
-  const t = String(raw || "")
-    .replace(/\bNO\.?\s*\d{1,4}\b/gi, " ") // "Batman No. 608" -> "Batman"
-    .replace(/\bISSUE\s*#?\s*\d{1,4}\b/gi, " ")
-    .replace(/[^A-Za-z0-9'&\- ]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\s+#?\d{1,4}$/, "") // issue number glued onto the title line
-    .trim();
-  if (!t) return "";
-  const small = new Set(["the", "of", "and", "a", "an"]);
-  return t.toLowerCase().split(" ").map((w, i) => {
-    if (i > 0 && small.has(w)) return w;
-    return w.split("-").map((p) => (p ? p[0].toUpperCase() + p.slice(1) : p)).join("-");
-  }).join(" ");
-}
-function scanFindTitle(ocrData, plainText) {
-  const boiler = (s) => SCAN_BOILER.test(s) || SCAN_DATE.test(s) || /\d{6,}/.test(s) || /\$\s*\d/.test(s);
-  const letterCount = (s) => s.replace(/[^A-Za-z]/g, "").length;
-  const candidates = [];
-  for (const ln of ocrData?.lines || []) {
-    const t = (ln.text || "").replace(/\s+/g, " ").trim();
-    if (letterCount(t) < 2 || boiler(t)) continue;
-    // Cover titles are set in the biggest type — use word height as the cue.
-    const h = Math.max(0, ...(ln.words || []).map((w) => (w.bbox?.y1 ?? 0) - (w.bbox?.y0 ?? 0)));
-    candidates.push({ t, h });
-  }
-  if (!candidates.length) {
-    for (const t of scanLines(plainText)) {
-      if (letterCount(t) >= 2 && !boiler(t)) candidates.push({ t, h: 0 });
-    }
-  }
-  if (!candidates.length) return "";
-  // Biggest type wins; on a tie the line carrying the issue number is
-  // almost always the title line on a slab label.
-  candidates.sort((a, b) => (b.h - a.h)
-    || ((/#\s*\d/.test(b.t) ? 1 : 0) - (/#\s*\d/.test(a.t) ? 1 : 0))
-    || (letterCount(b.t) - letterCount(a.t)));
-  return scanCleanTitle(candidates[0].t);
-}
-function scanLoadImage(file) {
+/* ---------------- photo image helpers ----------------
+   Loading a chosen photo and drawing it to a canvas — used to downscale
+   camera shots before they go to the identification service. (The old
+   on-device OCR scan is gone on purpose: identification is done by
+   searching the web for the cover, never by reading letters off the
+   photo — stylised cover lettering misread into gibberish.) */
+function photoLoadImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -1326,7 +1247,7 @@ function scanLoadImage(file) {
     img.src = url;
   });
 }
-function scanCanvas(img, topFraction, maxWidth) {
+function photoCanvas(img, topFraction, maxWidth) {
   const sw = img.naturalWidth;
   const sh = Math.round(img.naturalHeight * (topFraction || 1));
   const scale = Math.min(1, maxWidth / sw);
@@ -1336,72 +1257,25 @@ function scanCanvas(img, topFraction, maxWidth) {
   c.getContext("2d").drawImage(img, 0, 0, sw, sh, 0, 0, c.width, c.height);
   return c;
 }
-let scanBusy = false;
-async function scanCoverPhoto(file) {
-  const status = $("#cf-scan-status");
-  if (!status || scanBusy) return;
-  if (!file.type || !file.type.startsWith("image/")) return;
-  status.hidden = false;
-  if (!window.Tesseract) {
-    status.textContent = "Cover scanning isn't available right now — just fill the form in as usual.";
-    return;
-  }
-  scanBusy = true;
-  status.textContent = "Scanning cover… this can take a few seconds.";
-  try {
-    const { img, url } = await scanLoadImage(file);
-    try {
-      const first = (await window.Tesseract.recognize(scanCanvas(img, 1, 1280), "eng")).data;
-      let grade = scanFindGrade(first.text);
-      let title = scanFindTitle(first, first.text);
-      let issue = scanFindIssue(first.text, title);
-      if (!grade) {
-        // Slab labels sit at the top of the case — look closer there.
-        const top = (await window.Tesseract.recognize(scanCanvas(img, 0.34, 1280), "eng")).data;
-        grade = scanFindGrade(top.text);
-        if (!title) title = scanFindTitle(top, top.text);
-        if (!issue) issue = scanFindIssue(top.text, title);
-      }
-      const titleEl = $("#cf-title");
-      const issueEl = $("#cf-issue");
-      const gradeEl = $("#cf-grade");
-      if (!titleEl || !issueEl || !gradeEl) return; // form closed mid-scan
-      if (title && !titleEl.value.trim()) titleEl.value = title;
-      if (issue && !issueEl.value.trim()) issueEl.value = issue;
-      if (grade && !gradeEl.value) {
-        if (![...gradeEl.options].some((o) => o.value === grade)) gradeEl.add(new Option(grade, grade));
-        gradeEl.value = grade;
-      }
-      const bits = [[title, issue].filter(Boolean).join(" "), grade].filter(Boolean).join(" — ");
-      status.textContent = bits
-        ? `Scanned: ${bits} — check it over, fix anything off, then save.`
-        : "Couldn't read that cover — no problem, just fill the form in as usual.";
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  } catch (ex) {
-    const s = $("#cf-scan-status");
-    if (s) s.textContent = "Couldn't read that photo — no problem, just fill the form in as usual.";
-  } finally {
-    scanBusy = false;
-  }
-}
 
 /* ---------------- photo identification (Add/Edit Book only) ------------
    Both photo inputs at the top of the comic form feed this one pipeline,
-   and this form is the only place on the site that has it. Pass 1 is the
-   on-device OCR scan above: printed titles and slab labels. Pass 2 is the
-   AI pass for covers OCR can't name — above all virgin covers with no
-   title: the identify-cover Supabase Edge Function looks at the artwork
-   itself, describes it, searches comic databases and the web with that
-   description, and only fills the form when a result genuinely matches
-   the artwork (it names its source; a no-match stays a no-match). Until
-   that function is deployed (see web/README.md, deploy step 7), pass 2
-   simply isn't available and the status line says so rather than
-   pretending. Nothing here ever saves — the member confirms, then saves,
-   and the photo becomes the cover through the normal upload on save. */
+   and this form is the only place on the site that has it. Identification
+   is done by the identify-cover Supabase Edge Function: it looks at the
+   cover artwork itself, then searches the web — comic databases and
+   cover catalogues — for the actual published cover that matches the
+   photo, virgin covers with no title included. The best match fills the
+   form and names where it was found; close alternates are offered as
+   tappable choices. There is deliberately NO on-device text reading
+   here: letters OCR'd off stylised cover art are gibberish, not an
+   identification. When no internet match can be tied to the photo, the
+   status line says so plainly and the member enters the book by hand —
+   a title is never invented. Nothing here ever saves: the member
+   confirms, then saves, and the photo becomes the cover through the
+   normal upload on save. */
 let comicPhotoFile = null;
 let identifyBusy = false;
+let lastMatchAlts = [];
 
 function setScanStatus(text) {
   const s = $("#cf-scan-status");
@@ -1416,13 +1290,13 @@ function onCoverPhotoChosen(file) {
 }
 
 async function photoDataUrl(file) {
-  // Downscale camera shots to a 1024px JPEG data URL for the AI pass
+  // Downscale camera shots to a 1024px JPEG data URL for the identifier
   // (this is also what makes phone formats like HEIC sendable when the
   // browser can decode them at all).
   try {
-    const { img, url } = await scanLoadImage(file);
+    const { img, url } = await photoLoadImage(file);
     try {
-      return scanCanvas(img, 1, 1024).toDataURL("image/jpeg", 0.8);
+      return photoCanvas(img, 1, 1024).toDataURL("image/jpeg", 0.8);
     } finally {
       URL.revokeObjectURL(url);
     }
@@ -1443,7 +1317,7 @@ async function aiIdentifyCover(file) {
       if (data?.session?.access_token) token = data.session.access_token;
     } catch { /* the publishable key alone is a valid gateway token */ }
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 60000);
+    const timer = setTimeout(() => ctl.abort(), 90000);
     let res;
     try {
       res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/identify-cover`, {
@@ -1453,22 +1327,16 @@ async function aiIdentifyCover(file) {
           apikey: cfg.SUPABASE_PUBLISHABLE_KEY,
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          image: dataUrl,
-          ocr: {
-            title: $("#cf-title")?.value || "",
-            issue: $("#cf-issue")?.value || "",
-            grade: $("#cf-grade")?.value || "",
-          },
-        }),
+        body: JSON.stringify({ image: dataUrl }),
         signal: ctl.signal,
       });
     } finally {
       clearTimeout(timer);
     }
-    // 404 = function not deployed yet; 503 = deployed without its AI key.
-    // Either way the AI pass just isn't available — never an error worth
-    // showing as one.
+    // 404 = function not deployed; 503 = deployed without its AI key.
+    // Either way identification just isn't available — never an error
+    // worth showing as one, and never a reason to fall back to reading
+    // letters off the photo.
     if (!res.ok) return null;
     const out = await res.json();
     return out && typeof out === "object" ? out : null;
@@ -1477,18 +1345,29 @@ async function aiIdentifyCover(file) {
   }
 }
 
-function applyAiIdentification(ai) {
-  const fill = (sel, val) => {
+function fillIdentityFields(cand, force) {
+  const set = (sel, val) => {
     const el = $(sel);
-    if (el && val && !el.value.trim()) el.value = val;
+    if (el && val && (force || !el.value.trim())) el.value = val;
   };
-  fill("#cf-title", ai.title);
-  fill("#cf-issue", ai.issue);
-  if (ai.publisher) {
+  set("#cf-title", cand.title);
+  set("#cf-issue", cand.issue);
+  if (cand.publisher) {
     const pub = $("#cf-publisher");
-    if (pub && [...pub.options].some((o) => o.value === ai.publisher)) pub.value = ai.publisher;
+    if (pub && [...pub.options].some((o) => o.value === cand.publisher)) pub.value = cand.publisher;
   }
-  fill("#cf-variant", ai.variant);
+  set("#cf-variant", cand.variant);
+  if (Array.isArray(cand.coverTypes) && cand.coverTypes.length) {
+    const chips = [...document.querySelectorAll("#cf-cover-types [data-cover-type]")];
+    for (const t of cand.coverTypes) {
+      const btn = chips.find((b) => b.dataset.coverType.toLowerCase() === String(t).toLowerCase());
+      if (btn) btn.setAttribute("aria-pressed", "true");
+    }
+  }
+}
+
+function applyAiIdentification(ai) {
+  fillIdentityFields(ai, false);
   if (ai.grade) {
     const g = $("#cf-grade");
     if (g) {
@@ -1498,55 +1377,62 @@ function applyAiIdentification(ai) {
   }
   if (ai.isSigned) { const el = $("#cf-signed"); if (el) el.checked = true; }
   if (ai.isRemarqued) { const el = $("#cf-remark"); if (el) el.checked = true; }
-  if (Array.isArray(ai.coverTypes)) {
-    const chips = [...document.querySelectorAll("#cf-cover-types [data-cover-type]")];
-    for (const t of ai.coverTypes) {
-      const btn = chips.find((b) => b.dataset.coverType.toLowerCase() === String(t).toLowerCase());
-      if (btn) btn.setAttribute("aria-pressed", "true");
-    }
-  }
   if (ai.certNumber) {
     const n = $("#cf-notes");
     if (n && !n.value.includes(ai.certNumber)) {
       n.value = `${n.value ? `${n.value} ` : ""}Cert #${ai.certNumber}`.slice(0, 500);
     }
   }
-  setScanStatus(aiStatusText(ai));
+  setScanStatus(matchStatusText(ai, ai));
+  renderMatchAlts(ai);
 }
 
-function aiStatusText(ai) {
-  const bits = [[ai.title, ai.issue].filter(Boolean).join(" "), ai.variant, ai.grade].filter(Boolean).join(" — ");
-  return `AI match: ${bits || "book identified"}${ai.sourceName ? ` (source: ${ai.sourceName})` : ""}${ai.confidence === "low" ? " — low confidence, double-check it" : ""}. Check it over, fix anything off, then save.`;
+function matchStatusText(cand, base) {
+  const head = [cand.title, cand.issue].filter(Boolean).join(" ");
+  const bits = [cand.variant, cand.publisher, cand.year, base && base !== cand ? base.grade : cand.grade]
+    .filter(Boolean).join(" · ");
+  return `Match found: ${head}${bits ? ` — ${bits}` : ""}${cand.sourceName ? ` (found on ${cand.sourceName})` : ""}${cand.confidence === "low" ? " — low confidence, double-check it" : ""}. Check it over, fix anything off, then save.`;
+}
+
+function renderMatchAlts(ai) {
+  const box = $("#cf-match-alts");
+  if (!box) return;
+  lastMatchAlts = Array.isArray(ai?.alternates) ? ai.alternates.filter((a) => a && a.title) : [];
+  if (!lastMatchAlts.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.innerHTML = `<span class="label" style="width:100%">Not it? Other close matches — tap one to use it:</span>` +
+    lastMatchAlts.map((a, i) => {
+      const label = [[a.title, a.issue].filter(Boolean).join(" "), a.variant, a.year].filter(Boolean).join(" — ");
+      return `<button type="button" class="chip" data-match-alt="${i}">${esc(label)}</button>`;
+    }).join("");
+  box.hidden = false;
+  box.querySelectorAll("[data-match-alt]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const alt = lastMatchAlts[Number(btn.dataset.matchAlt)];
+      if (!alt) return;
+      fillIdentityFields(alt, true);
+      setScanStatus(matchStatusText(alt, ai));
+    });
+  });
 }
 
 async function identifyCoverPhoto(file) {
   if (identifyBusy) {
-    setScanStatus("Still reading the last photo — give it a few seconds, then pick this photo again to read it.");
+    setScanStatus("Still identifying the last photo — give it a few seconds, then pick this photo again.");
     return;
   }
   identifyBusy = true;
+  const box = $("#cf-match-alts");
+  if (box) { box.hidden = true; box.innerHTML = ""; }
+  setScanStatus("Identifying this cover — searching the web for a match…");
   try {
-    // Fast first: both passes start together — on-device OCR for printed
-    // titles and slab labels, and the AI artwork identification (virgin
-    // covers especially). Whichever finds the book fills the form; the
-    // AI result is applied the moment it lands rather than waiting for
-    // the slower pass to finish.
-    const ocrPromise = scanCoverPhoto(file);
-    const aiPromise = aiIdentifyCover(file).then((ai) => {
-      if (ai && ai.ok) applyAiIdentification(ai);
-      return ai;
-    });
-    const ai = await aiPromise;
-    await ocrPromise;
-    const ocrFound = !!($("#cf-title")?.value.trim() || $("#cf-grade")?.value);
+    const ai = await aiIdentifyCover(file);
     if (ai && ai.ok) {
-      // OCR may have written its own status line after the AI landed —
-      // the AI match is the headline result, so put it back on top.
-      setScanStatus(aiStatusText(ai));
-    } else if (!ocrFound) {
-      setScanStatus(ai && ai.message
-        ? ai.message
-        : "Couldn't read that cover — fill the form in as usual, and the photo still becomes its cover. (Artwork matching for covers with no title isn't switched on yet.)");
+      applyAiIdentification(ai);
+    } else if (ai && ai.message) {
+      // The identifier answered honestly: no match it could stand behind.
+      setScanStatus(ai.message);
+    } else {
+      setScanStatus("Cover identification isn't available right now — fill the form in as usual, and the photo still becomes its cover.");
     }
   } finally {
     identifyBusy = false;
