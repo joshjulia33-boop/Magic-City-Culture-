@@ -64,6 +64,8 @@ let view = { kind: "gallery" };  // gallery | market | collectors | profile | sh
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
 let galleryGroup = false;
+let shelfSearch = "";
+let shelfFilter = "all";         // all | covers | signed | graded | for_sale
 let bookSearchQuery = "";
 let searchParsed = { series: "", issue: "", raw: "" };
 let searchCommunity = [];        // gallery_comics rows matching the query
@@ -453,6 +455,21 @@ function viewProfileHtml(collectorId) {
 }
 
 /* ---------------- my shelf ---------------- */
+function filteredShelf() {
+  const q = shelfSearch.trim().toLowerCase();
+  return myComics.filter((c) => {
+    if (shelfFilter === "covers" && !c.cover_url) return false;
+    if (shelfFilter === "signed" && !c.is_signed) return false;
+    if (shelfFilter === "graded" && !isGraded(c.grade)) return false;
+    if (shelfFilter === "for_sale" && c.status !== "for_sale") return false;
+    if (!q) return true;
+    return (
+      (c.title || "").toLowerCase().includes(q) ||
+      (c.variant || "").toLowerCase().includes(q) ||
+      (c.publisher || "").toLowerCase().includes(q)
+    );
+  });
+}
 function invitePanelHtml(p) {
   const link = referralLinkFor(p.handle);
   const count = referralCountFor(p.id);
@@ -503,7 +520,17 @@ function viewShelfHtml() {
     const v = myValues.get(c.id);
     if (v) { totalPaid += v.purchase_price_cents || 0; totalValue += v.current_value_cents || 0; }
   }
-  const cards = myComics.map((c) => {
+  const shelfBooks = filteredShelf();
+  const withCovers = myComics.filter((c) => c.cover_url).length;
+  const signedCount = myComics.filter((c) => c.is_signed).length;
+  const shelfChips = [
+    ["all", `All books (${myComics.length})`],
+    ["covers", `With cover art (${withCovers})`],
+    ["signed", "Signed"],
+    ["graded", "Graded"],
+    ["for_sale", "For sale"],
+  ];
+  const cards = shelfBooks.map((c) => {
     const v = myValues.get(c.id);
     return `<article class="card">
       <button type="button" class="cover-btn" data-action="edit-book" data-id="${c.id}" aria-label="Open ${esc(c.title)} ${esc(c.issue)} on your shelf">${coverHtml(c)}</button>
@@ -542,7 +569,15 @@ function viewShelfHtml() {
       </button>
     </div>
     ${invitePanelHtml(p)}
-    ${myComics.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Your shelf is empty — add your first book.</p>`}
+    ${myComics.length ? `
+    <div class="toolbar">
+      <label class="sr-only" for="shelf-search" style="position:absolute;left:-9999px">Search your shelf</label>
+      <input id="shelf-search" class="input grow" type="search" placeholder="Search your titles, variants, publishers…" value="${esc(shelfSearch)}" />
+    </div>
+    <div class="filter-row" role="group" aria-label="Filter your shelf">
+      ${shelfChips.map(([k, label]) => `<button type="button" class="chip" data-action="shelf-filter" data-filter="${k}" aria-pressed="${shelfFilter === k}">${esc(label)}</button>`).join("")}
+    </div>
+    ${shelfBooks.length ? `<div class="grid">${cards}</div>` : `<p class="empty">No books match that search. Try a different title or clear the filters.</p>`}` : `<p class="empty">Your shelf is empty — add your first book.</p>`}
   </section>`;
 }
 
@@ -575,6 +610,17 @@ function render() {
   }
   const groupToggle = $("#gallery-group");
   if (groupToggle) groupToggle.addEventListener("change", (e) => { galleryGroup = e.target.checked; render(); });
+  const shelfSearchEl = $("#shelf-search");
+  if (shelfSearchEl) {
+    shelfSearchEl.addEventListener("input", (e) => {
+      shelfSearch = e.target.value;
+      // Same approach as the gallery search: re-render, restore focus + caret.
+      const pos = e.target.selectionStart;
+      render();
+      const s2 = $("#shelf-search");
+      if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
+    });
+  }
   const bsForm = $("#book-search-form");
   if (bsForm) bsForm.addEventListener("submit", (e) => { e.preventDefault(); runBookSearch($("#bs-q").value); });
   const inviteForm = $("#invite-form");
@@ -1397,6 +1443,7 @@ document.addEventListener("click", (e) => {
       });
       break;
     case "gallery-filter": galleryFilter = el.dataset.filter; render(); break;
+    case "shelf-filter": shelfFilter = el.dataset.filter; render(); break;
     case "open-detail": openDetail(id); break;
     case "buy": confirmBuy(id); break;
     case "complete-order": completeOrder(id); break;

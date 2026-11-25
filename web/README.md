@@ -36,7 +36,10 @@ host — no build step, no server of its own.
   `comic_values` (owner-only in the database): totals paid / current
   value, add & edit books (including cover photo upload to the `covers`
   storage bucket), list a book for sale or unlist it, and the
-  **show values publicly** toggle (off by default).
+  **show values publicly** toggle (off by default). The book grid has
+  the same search and filter chips as the Gallery (all books / with
+  cover art / signed / graded / for sale), applied to the member's own
+  books only, in the same newest-first order.
 - **Referrals** — every member gets a personal invite link,
   `<site>/?ref=<handle>`, shown on My Shelf in a single **Invite a
   Collector** panel — one invite with two options under it: (1) share
