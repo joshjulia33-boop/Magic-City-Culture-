@@ -1490,6 +1490,7 @@ document.addEventListener("error", (e) => {
     }
   }
   function fitBranding() {
+    fitText($(".masthead"), 58, 16);
     document.querySelectorAll("#main-nav .nav-btn").forEach((b) => fitText(b, 13, 7.5));
     fitText($(".brand .brand-name"), 11, 6);
     fitText($(".brand .brand-sub"), 17, 9);
