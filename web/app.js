@@ -14,6 +14,20 @@ const sb = window.supabase.createClient(
 const COVER_COLORS = ["#FF2E88", "#00D4FF", "#B537F2", "#FF6EC7", "#0090FF", "#12102E", "#FF8A00", "#00E5A0", "#FF2E5F", "#00BFFF"];
 const PUBLISHERS = ["Marvel", "DC Comics", "Image Comics", "Dark Horse", "IDW", "Dynamite", "AWA", "BOOM! Studios", "Other"];
 const GRADES = ["", "Raw — Near Mint", "Raw — Very Fine", "Raw — Fine", "Raw", "CGC 10.0", "CGC 9.9", "CGC 9.8", "CGC 9.6", "CGC 9.4", "CGC 9.2", "CGC 9.0", "CBCS 9.8", "CBCS 9.6", "PGX 9.8"];
+// The cover types / finishes collectors actually mark, gathered from
+// collector references (League of Comic Geeks' cover-enhancement list,
+// NuGrade's and Comic Vine's variant-cover guides, grading glossaries).
+// A book's picks live in comics.cover_type as one comma-joined string
+// ("Virgin, Foil") — a cover can be several types at once.
+const COVER_TYPES = ["Standard", "Metal", "Leather", "Foil", "Holographic", "Chromium", "Prismatic", "Acetate", "Lenticular", "Glow-in-the-Dark", "Embossed", "Die-Cut", "Cardstock", "Virgin", "Black & White", "Sketch", "Blank Sketch", "Photo", "Wraparound", "Connecting", "Gatefold", "Trading Card", "Incentive Variant"];
+function coverTypesOf(c) {
+  return String(c?.cover_type || "").split(",").map((t) => t.trim()).filter(Boolean);
+}
+// Tile colour for a book with no cover photo: the site just picks one
+// from the palette — members don't choose it any more.
+function pickTileColor() {
+  return COVER_COLORS[Math.floor(Math.random() * COVER_COLORS.length)];
+}
 const AVATAR_COLORS = COVER_COLORS;
 
 /* ---------------- helpers ---------------- */
@@ -126,6 +140,7 @@ function badgesHtml(c) {
   let h = "";
   if (c.is_signed) h += `<span class="badge signed">SIGNED</span>`;
   if (c.has_remark) h += `<span class="badge remark">REMARQUED</span>`;
+  for (const t of coverTypesOf(c)) h += `<span class="badge covertype">${esc(t.toUpperCase())}</span>`;
   if (c.grade) h += `<span class="badge">${esc(c.grade)}</span>`;
   if (c.status === "for_sale" && c.asking_price_cents != null) h += `<span class="badge sale">FOR SALE ${esc(money(c.asking_price_cents))}</span>`;
   if (c.status === "sold") h += `<span class="badge sold">SOLD</span>`;
@@ -692,6 +707,7 @@ function openDetail(comicId) {
         ${c.grade ? `<p><span class="k">Grade</span>${esc(c.grade)}</p>` : ""}
         <p><span class="k">Signed</span>${c.is_signed ? "Yes" : "No"}</p>
         <p><span class="k">Remark</span>${c.has_remark ? "Yes" : "No"}</p>
+        ${coverTypesOf(c).length ? `<p><span class="k">Cover</span>${esc(coverTypesOf(c).join(", "))}</p>` : ""}
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
         ${c.current_value_cents != null ? `<p><span class="k">Current value (shared by the collector)</span>${esc(money(c.current_value_cents))}</p>` : ""}
         ${c.status === "for_sale" && c.asking_price_cents != null ? `<p><span class="k">Asking price</span><strong style="color:var(--accent)">${esc(money(c.asking_price_cents))}</strong></p>` : ""}
@@ -1028,6 +1044,7 @@ function addFromCommunity(id) {
     publisher: c.publisher || undefined,
     variant: c.variant || "",
     grade: c.grade || "",
+    cover_type: c.cover_type || "",
     notes: `Same book as ${c.collector_name}'s copy in the community.`,
   });
 }
@@ -1040,6 +1057,10 @@ function comicFormHtml(c, prefill = null) {
   // of the stock options (same trick the cover scan uses).
   const gradeVal = c?.grade || prefill?.grade || "";
   const gradeOptions = gradeVal && !GRADES.includes(gradeVal) ? [...GRADES, gradeVal] : GRADES;
+  // Cover-type chips: the stock list plus any type already saved on the
+  // book that isn't in the list, so nothing a member picked ever vanishes.
+  const coverTypeSel = c ? coverTypesOf(c) : coverTypesOf(prefill);
+  const coverTypeList = [...COVER_TYPES, ...coverTypeSel.filter((t) => !COVER_TYPES.includes(t))];
   return `
     ${prefill ? `<p class="scan-status" style="margin:0 0 .75rem">Pre-filled from Book Search — check it over, then save.</p>` : ""}
     <div class="field"><label class="label" for="cf-title">Title *</label>
@@ -1053,6 +1074,8 @@ function comicFormHtml(c, prefill = null) {
     <div class="field"><label class="label" for="cf-grade">Grade</label>
       <select class="input" id="cf-grade">${gradeOptions.map((g) => `<option value="${esc(g)}" ${g === gradeVal ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
     <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label><label class="check"><input type="checkbox" id="cf-remark" ${c?.has_remark ? "checked" : ""} /> Has a remark</label></div>
+    <div class="field"><span class="label">Cover type — tap all that fit</span>
+      <div class="filter-row" id="cf-cover-types" style="margin-top:.35rem">${coverTypeList.map((t) => `<button type="button" class="chip" data-cover-type="${esc(t)}" aria-pressed="${coverTypeSel.includes(t) ? "true" : "false"}">${esc(t)}</button>`).join("")}</div></div>
     <div class="field"><label class="label" for="cf-status">Status</label>
       <select class="input" id="cf-status">
         ${[["owned", "On my shelf"], ["for_sale", "For sale"], ["wishlist", "Wishlist"], ["sold", "Sold"]].map(([val, label]) => `<option value="${val}" ${val === status ? "selected" : ""}>${label}</option>`).join("")}
@@ -1060,7 +1083,6 @@ function comicFormHtml(c, prefill = null) {
     <div class="field" id="cf-asking-wrap" ${status === "for_sale" ? "" : 'style="display:none"'}>
       <label class="label" for="cf-asking">Asking price ($) — public, it's your offer to everyone</label>
       <input class="input" id="cf-asking" inputmode="decimal" value="${esc(centsToDollars(c?.asking_price_cents))}" placeholder="25" /></div>
-    <div class="field"><span class="label">Cover colour (tile shown until you add a photo)</span>${swatchesHtml("cf-color", c?.cover_color || "#FF2E88")}</div>
     <div class="field"><label class="label" for="cf-cover">Cover photo (optional)</label>
       <input class="input" id="cf-cover" type="file" accept="image/*" />
       <p class="form-note" style="margin-top:.3rem">${c?.cover_url ? "A cover photo is set — choosing a new one replaces it. " : ""}Pick a clear photo of the cover or the slab label and we'll try to read the title, issue and grade off it for you.</p>
@@ -1088,7 +1110,11 @@ function openComicForm(comicId = null, prefill = null) {
         ${c ? `<button type="button" class="btn btn-danger" data-action="delete-book" data-id="${c.id}">REMOVE FROM SHELF</button>` : ""}
       </div>
     </form>`, true);
-  wireSwatches(document);
+  const ctWrap = $("#cf-cover-types");
+  if (ctWrap) ctWrap.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-cover-type]");
+    if (btn) btn.setAttribute("aria-pressed", btn.getAttribute("aria-pressed") === "true" ? "false" : "true");
+  });
   const coverInput = $("#cf-cover");
   if (coverInput) coverInput.addEventListener("change", () => {
     const f = coverInput.files?.[0];
@@ -1107,11 +1133,17 @@ async function uploadCover(file, comicId) {
   const { data } = sb.storage.from("covers").getPublicUrl(path);
   return data.publicUrl;
 }
-// True when the database doesn't have the comics.has_remark column yet
-// (the one-time SQL in supabase/add-has-remark.sql adds it). PostgREST
-// answers PGRST204 for an unknown column in a write payload.
-function isMissingRemarkColumn(error) {
-  return !!error && (error.code === "PGRST204" || /has_remark/.test(error.message || ""));
+// The newer comics columns arrive by one-time SQL (has_remark via
+// supabase/add-has-remark.sql, cover_type via supabase/add-cover-type.sql).
+// Until that SQL runs, PostgREST answers PGRST204 and names the column in
+// the message — the save then drops just that field and goes through.
+function missingColumnOf(error) {
+  if (!error) return null;
+  const msg = error.message || "";
+  if (error.code !== "PGRST204" && !/column/i.test(msg)) return null;
+  if (/cover_type/.test(msg)) return "cover_type";
+  if (/has_remark/.test(msg)) return "has_remark";
+  return error.code === "PGRST204" ? "has_remark" : null;
 }
 async function onComicSubmit(e) {
   e.preventDefault();
@@ -1133,30 +1165,35 @@ async function onComicSubmit(e) {
       grade: $("#cf-grade").value,
       is_signed: $("#cf-signed").checked,
       has_remark: $("#cf-remark").checked,
+      cover_type: [...document.querySelectorAll('#cf-cover-types [aria-pressed="true"]')].map((b) => b.dataset.coverType).join(", "),
       status,
       asking_price_cents: asking,
-      cover_color: $("#cf-color").value,
+      // No colour picker any more: an edit keeps the book's tile colour,
+      // a new book just gets one from the palette.
+      cover_color: comicId ? (myComics.find((x) => x.id === comicId)?.cover_color || pickTileColor()) : pickTileColor(),
     };
     if (!fields.title) throw new Error("The book needs a title.");
     let id = comicId;
-    if (id) {
-      let { error } = await sb.from("comics").update(fields).eq("id", id);
-      if (error && isMissingRemarkColumn(error)) {
-        // The one-time remark SQL hasn't been run in Supabase yet — save
-        // everything else rather than failing the whole book.
-        const { has_remark, ...rest } = fields;
-        ({ error } = await sb.from("comics").update(rest).eq("id", id));
+    let payload = { ...fields };
+    let writeErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let res;
+      if (id) {
+        res = await sb.from("comics").update(payload).eq("id", id);
+      } else {
+        res = await sb.from("comics").insert({ ...payload, collector_id: myProfile.id }).select("id").single();
+        if (!res.error) id = res.data.id;
       }
-      if (error) throw error;
-    } else {
-      let res = await sb.from("comics").insert({ ...fields, collector_id: myProfile.id }).select("id").single();
-      if (res.error && isMissingRemarkColumn(res.error)) {
-        const { has_remark, ...rest } = fields;
-        res = await sb.from("comics").insert({ ...rest, collector_id: myProfile.id }).select("id").single();
-      }
-      if (res.error) throw res.error;
-      id = res.data.id;
+      writeErr = res.error || null;
+      if (!writeErr) break;
+      // A one-time SQL update hasn't been run in Supabase yet — save
+      // everything else rather than failing the whole book.
+      const missing = missingColumnOf(writeErr);
+      if (!missing || !(missing in payload)) break;
+      const { [missing]: _dropped, ...rest } = payload;
+      payload = rest;
     }
+    if (writeErr) throw writeErr;
     const file = $("#cf-cover").files?.[0];
     if (file) {
       const url = await uploadCover(file, id);

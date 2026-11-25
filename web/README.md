@@ -94,6 +94,20 @@ host — no build step, no server of its own.
    tick just doesn't persist yet. The add/edit form no longer has a
    Current value box: stored values and the shelf totals are
    untouched, and saving a book keeps whatever value it already had.
+6. Cover types (one-time): in the same SQL editor, run
+   `../supabase/add-cover-type.sql` (after `schema.sql` and
+   `add-has-remark.sql`). It adds `comics.cover_type` (a comma-joined
+   string — a cover can be several types at once) and projects it
+   through the gallery/listings views, enabling the "Cover type — tap
+   all that fit" chips in the add/edit form (under Signed / Has a
+   remark), the cover-type badges on cards, and the "Cover" line in
+   the detail view. It also backfills types from the variant wording
+   already on the books (metal, foil, virgin, …). Until it is run,
+   books still save normally — the picks just don't persist yet.
+   The add/edit form no longer has a cover colour picker either: a
+   new book's placeholder tile just gets a colour from the site
+   palette automatically, and existing books keep the colour they
+   already have.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

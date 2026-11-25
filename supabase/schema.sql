@@ -154,6 +154,9 @@ create table if not exists public.comics (
   grade               text not null default '',
   is_signed           boolean not null default false,
   has_remark          boolean not null default false,
+  -- Cover types / finishes the member tapped in the form, comma-joined
+  -- ("Virgin, Foil") — a cover can be several at once. '' = none picked.
+  cover_type          text not null default '',
   -- Marketplace asking price in cents, set only while status = 'for_sale'.
   -- Public by design — it is the offer to everyone. Cleared when unlisted.
   asking_price_cents  integer check (asking_price_cents is null or asking_price_cents >= 0),
@@ -377,7 +380,8 @@ select cm.id,
        cm.cover_color, cm.cover_url, cm.created_at,
        case when col.show_values_publicly then cv.current_value_cents end
          as current_value_cents,
-       cm.has_remark
+       cm.has_remark,
+       cm.cover_type
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -392,7 +396,8 @@ select cm.id as comic_id,
        col.display_name as seller_name,
        col.handle       as seller_handle,
        cm.updated_at    as listed_at,
-       cm.has_remark
+       cm.has_remark,
+       cm.cover_type
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';
