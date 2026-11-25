@@ -38,11 +38,14 @@ host — no build step, no server of its own.
   storage bucket), list a book for sale or unlist it, and the
   **show values publicly** toggle (off by default).
 - **Referrals** — every member gets a personal invite link,
-  `<site>/?ref=<handle>`, shown on My Shelf in an **Invite a friend**
-  panel with a copy button, a "send referral email" button (it opens the
-  member's own mail app with a pre-written invite — the site has no mail
-  server and never sends email itself), and a WhatsApp share link. The
-  panel also shows how many collectors joined through the member's link.
+  `<site>/?ref=<handle>`, shown on My Shelf in a single **Invite a
+  Collector** panel — one invite with two options under it: (1) share
+  the link, with a copy-link button, a "send referral email" button (it
+  opens the member's own mail app with a pre-written invite — the site
+  has no mail server and never sends email itself), and a WhatsApp share
+  link; and (2) a copy-the-message option for friends who have Muse
+  (see below). The panel also shows how many collectors joined through
+  the member's link.
   A visitor arriving with `?ref=<handle>` has it remembered; the Join
   view and the profile form say "Invited by @handle" when that handle is
   a real collector, and creating the profile records `referred_by` on
@@ -52,16 +55,16 @@ host — no build step, no server of its own.
   work and invites simply aren't recorded yet.
 - **Ask-your-Muse helpers** — there is no Muse-to-Muse account link,
   so the site hands people a ready-made message to paste to their own
-  Muse instead (copy-text only, no backend). The Join modal carries a
-  "Have Muse? Let it set you up." panel whose message tells the
-  visitor's Muse to join, create their profile, and shelve their first
-  books — carrying the full referral URL when they arrived through one,
-  so the inviter still gets credit. The Invite panel adds a matching
-  Claude-user invite text (referral link + the same instruction), and
-  My Shelf has an "Add books with your Muse" panel: an instruction a
-  member gives their Muse to open the site signed in as them and add a
-  list of books (title, issue, variant, signed/graded, cover photo
-  each) to their shelf.
+  Muse instead (copy-text only, no backend). That message lives inside
+  the one **Invite a Collector** panel on My Shelf, as its second
+  option: the Claude-user invite text (the member's referral link + an
+  instruction telling the friend's Muse to join through that exact
+  link, create their profile, and shelve their first books), so the
+  inviter still gets credit. Separately, My Shelf has an "Add books
+  with your Muse" panel (about adding books, not inviting): an
+  instruction a member gives their Muse to open the site signed in as
+  them and add a list of books (title, issue, variant, signed/graded,
+  cover photo each) to their shelf.
 
 ## Deploy (remaining steps)
 

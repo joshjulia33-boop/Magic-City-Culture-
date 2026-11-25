@@ -108,28 +108,11 @@ function referralCountFor(collectorId) {
 /* ---------------- ask-your-Muse helpers ----------------
    There is no Muse-to-Muse account link: a friend's own Muse helps
    them by opening this site in a browser and doing the steps with them,
-   exactly the way Joshua's Muse built all of this. These helpers just
-   hand the visitor or member a ready-made message to paste to their
-   Muse, so the setup feels one-tap. Copy-text only — no new backend. */
+   exactly the way Joshua's Muse built all of this. There is ONE invite
+   on the site — the panel on My Shelf — and its second option hands the
+   member a ready-made message (carrying their referral link) for a
+   friend to paste to their own Muse. Copy-text only — no new backend. */
 const SITE_URL = "https://magic-city-culture.vercel.app/";
-function claudeJoinMessage() {
-  // Arrived through a referral link? The copied message must carry the
-  // full referral URL, so the inviter still gets the credit.
-  if (referrerProfile) {
-    const link = referralLinkFor(referrerProfile.handle);
-    return `Join Magic City Culture, a comic collectors community, at ${link} — I was invited through this link, so please open this exact address. Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf.`;
-  }
-  return `Join Magic City Culture, a comic collectors community, at ${SITE_URL} (if I arrived through a referral link, keep the ?ref= part). Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf.`;
-}
-function claudeJoinPanelHtml() {
-  return `<div class="claude-panel">
-    <p class="cp-tag">HAVE CLAUDE? LET IT SET YOU UP.</p>
-    <p class="form-note">Copy this message and paste it to your own Muse — it'll open the site, sign you up, create your collector profile, and help you shelve your first books.</p>
-    <div class="field"><label class="label" for="claude-join-text">Message for your Muse</label>
-      <textarea class="input copy-text" id="claude-join-text" rows="4" readonly>${esc(claudeJoinMessage())}</textarea></div>
-    <button type="button" class="btn btn-blue" data-action="copy-claude-join">COPY THE MESSAGE</button>
-  </div>`;
-}
 function claudeInviteText(link) {
   return `Join me on Magic City Culture — a Miami community for comic collectors: ${link}\n\nGot Muse? Paste this to it and it'll set you up:\n"Join Magic City Culture at ${link} — I was invited through this link, so please open this exact address. Sign me up, create my collector profile, then help me add my comics with their cover photos to my shelf."`;
 }
@@ -492,12 +475,13 @@ function invitePanelHtml(p) {
   const count = referralCountFor(p.id);
   const shareText = `Join me on Magic City Culture — a Miami community for comic collectors. Shelve your books, browse every collection, and trade in the market: ${link}`;
   return `<div class="values-panel">
-    <p class="vp-tag">INVITE A FRIEND</p>
-    <p class="vp-note" style="margin-top:.4rem">Referrals: ${count} collector${count === 1 ? "" : "s"} joined through your link.</p>
-    <div class="field" style="margin-top:.6rem"><label class="label" for="ref-link">Your referral link</label>
+    <p class="vp-tag">INVITE A COLLECTOR</p>
+    <p class="vp-note" style="margin-top:.4rem">One invite, two ways to send it — either way, you get the credit when they join. Referrals: ${count} collector${count === 1 ? "" : "s"} joined through your link.</p>
+    <p class="label" style="margin-top:.9rem">Option 1 — Share your link</p>
+    <div class="field" style="margin-top:.4rem"><label class="label" for="ref-link">Your referral link</label>
       <div style="display:flex;gap:.5rem">
         <input class="input" id="ref-link" style="flex:1" readonly value="${esc(link)}" aria-label="Your referral link" />
-        <button type="button" class="btn btn-blue" data-action="copy-ref-link">COPY</button>
+        <button type="button" class="btn btn-blue" data-action="copy-ref-link">COPY LINK</button>
       </div>
     </div>
     <form id="invite-form">
@@ -509,10 +493,11 @@ function invitePanelHtml(p) {
       </div>
     </form>
     <p class="vp-note">The email opens in your own mail app, from you — the site never sends mail for you.</p>
-    <p class="vp-note" style="margin-top:.8rem">Friend uses Muse too? Send them this instead — their Muse can do the whole setup for them:</p>
-    <div class="field" style="margin-top:.4rem"><label class="label" for="ref-claude-text">Invite for a Muse user</label>
+    <p class="label" style="margin-top:1rem">Option 2 — Your friend has Muse?</p>
+    <p class="vp-note" style="margin-top:.4rem">Send them this message instead — they paste it to their own Muse and it does the whole setup for them. Your invite link is inside it, so you still get the credit:</p>
+    <div class="field" style="margin-top:.4rem"><label class="label" for="ref-claude-text">Message for your friend's Muse</label>
       <textarea class="input copy-text" id="ref-claude-text" rows="4" readonly>${esc(claudeInviteText(link))}</textarea></div>
-    <button type="button" class="btn btn-blue" data-action="copy-ref-claude">COPY CLAUDE INVITE</button>
+    <button type="button" class="btn btn-blue" data-action="copy-ref-claude">COPY THE MESSAGE</button>
   </div>`;
 }
 function viewShelfHtml() {
@@ -706,8 +691,7 @@ function openAuth(mode = "join") {
       <p class="form-note" style="margin-top:.6rem">${mode === "join"
         ? "After your account, you'll pick the name and handle for your shelf. Your collection values are private by default — always."
         : "Welcome back to the city."}</p>
-    </form>
-    ${mode === "join" ? claudeJoinPanelHtml() : ""}`);
+    </form>`);
   $("#auth-form").addEventListener("submit", onAuthSubmit);
 }
 async function onAuthSubmit(e) {
@@ -1438,7 +1422,6 @@ document.addEventListener("click", (e) => {
     case "complete-order": completeOrder(id); break;
     case "toggle-values": toggleValues(); break;
     case "copy-ref-link": copyReferralLink(); break;
-    case "copy-claude-join": copyTextFromField("claude-join-text", el); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;
     case "copy-claude-add": copyTextFromField("claude-add-text", el); break;
     case "add-book": openComicForm(null); break;
