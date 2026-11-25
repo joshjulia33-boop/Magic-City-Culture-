@@ -91,14 +91,14 @@ header.site {
 }
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; flex: none; }
 /* Section tabs: a square bordered box around each word. Two rows of
-   three on phones, one row of five from 560px up. Each label is measured
+   two on phones, one row of four from 560px up. Each label is measured
    on screen by app.js and shrunk until it fits inside its box, and the
    box clips overflow — no word can clip, split mid-word, or spill. */
 nav.main-nav {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.375rem; padding-bottom: 0.6rem;
 }
-@media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .nav-btn {
   min-width: 0; overflow: hidden; white-space: nowrap; text-align: center;
   border-radius: 8px; padding: 0.45rem 0.2rem; line-height: 1.15;
@@ -341,13 +341,6 @@ textarea.copy-text { font-size: 13px; line-height: 1.45; }
 .form-error { color: var(--accent-soft); font-size: 13px; font-weight: 700; min-height: 1.1em; margin: 0.25rem 0 0.5rem; }
 .form-note { font-size: 13px; color: var(--dim); margin: 0 0 0.75rem; }
 .scan-status { font-size: 13px; font-weight: 700; color: var(--accent); margin: 0.35rem 0 0; }
-.search-head { font-family: var(--font-display); font-size: 14px; letter-spacing: 0.06em; color: var(--dim); margin: 1.5rem 0 0.25rem; }
-.research-list { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
-.research-card { border-radius: var(--radius); border: 2px solid #000; background: var(--surface); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.45); padding: 0.8rem; }
-.research-card .title { font-weight: 700; font-size: 15px; line-height: 1.25; margin: 0 0 0.35rem; }
-.research-card p { margin: 0.15rem 0; font-size: 13px; }
-.research-desc { color: var(--dim); margin-top: 0.4rem; }
-.search-add-btn { width: 100%; margin-top: 0.45rem; }
 .row-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
 .hidden { display: none !important; }
 .center-note { text-align: center; padding: 3rem 0; }
