@@ -240,6 +240,7 @@ nav.main-nav {
 .badges { display: flex; flex-wrap: wrap; gap: 0.25rem; position: relative; }
 .badge { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 0.12rem 0.4rem; border-radius: 3px; background: #000; color: #fff; }
 .badge.signed { background: var(--blue); color: #000; }
+.badge.remark { background: #ff7a1a; color: #000; }
 .badge.sale { background: var(--accent); color: #fff; }
 .badge.sold { background: #55517e; color: #fff; }
 

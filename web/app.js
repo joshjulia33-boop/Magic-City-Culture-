@@ -125,6 +125,7 @@ function avatarHtml(p, size = "md") {
 function badgesHtml(c) {
   let h = "";
   if (c.is_signed) h += `<span class="badge signed">SIGNED</span>`;
+  if (c.has_remark) h += `<span class="badge remark">REMARQUED</span>`;
   if (c.grade) h += `<span class="badge">${esc(c.grade)}</span>`;
   if (c.status === "for_sale" && c.asking_price_cents != null) h += `<span class="badge sale">FOR SALE ${esc(money(c.asking_price_cents))}</span>`;
   if (c.status === "sold") h += `<span class="badge sold">SOLD</span>`;
@@ -273,6 +274,7 @@ function filteredGallery() {
   return gallery.filter((c) => {
     if (galleryFilter === "covers" && !c.cover_url) return false;
     if (galleryFilter === "signed" && !c.is_signed) return false;
+    if (galleryFilter === "remarqued" && !c.has_remark) return false;
     if (galleryFilter === "graded" && !isGraded(c.grade)) return false;
     if (galleryFilter === "for_sale" && c.status !== "for_sale") return false;
     if (!q) return true;
@@ -294,6 +296,7 @@ function viewGalleryHtml() {
     ["all", `All books (${gallery.length})`],
     ["covers", `With cover art (${withCovers})`],
     ["signed", "Signed"],
+    ["remarqued", "Remarqued"],
     ["graded", "Graded"],
     ["for_sale", "For sale"],
   ];
@@ -433,6 +436,7 @@ function viewProfileHtml(collectorId) {
   const inviter = p.referred_by ? profileById(p.referred_by) : null;
   const books = gallery.filter((c) => c.collector_id === collectorId);
   const signed = books.filter((c) => c.is_signed).length;
+  const remarqued = books.filter((c) => c.has_remark).length;
   const exposedTotal = p.show_values_publicly
     ? books.reduce((sum, c) => sum + (c.current_value_cents || 0), 0)
     : null;
@@ -447,7 +451,7 @@ function viewProfileHtml(collectorId) {
       </div>
     </div>
     <div class="stat-chips" style="justify-content:flex-start">
-      <span>${books.length} books</span><span>${signed} signed</span>
+      <span>${books.length} books</span><span>${signed} signed</span><span>${remarqued} remarqued</span>
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
     ${books.length ? `<div class="grid">${books.map(galleryCardHtml).join("")}</div>` : `<p class="empty">No books on this shelf yet.</p>`}
@@ -460,6 +464,7 @@ function filteredShelf() {
   return myComics.filter((c) => {
     if (shelfFilter === "covers" && !c.cover_url) return false;
     if (shelfFilter === "signed" && !c.is_signed) return false;
+    if (shelfFilter === "remarqued" && !c.has_remark) return false;
     if (shelfFilter === "graded" && !isGraded(c.grade)) return false;
     if (shelfFilter === "for_sale" && c.status !== "for_sale") return false;
     if (!q) return true;
@@ -527,6 +532,7 @@ function viewShelfHtml() {
     ["all", `All books (${myComics.length})`],
     ["covers", `With cover art (${withCovers})`],
     ["signed", "Signed"],
+    ["remarqued", "Remarqued"],
     ["graded", "Graded"],
     ["for_sale", "For sale"],
   ];
@@ -685,6 +691,7 @@ function openDetail(comicId) {
         ${c.variant ? `<p><span class="k">Variant</span>${esc(c.variant)}</p>` : ""}
         ${c.grade ? `<p><span class="k">Grade</span>${esc(c.grade)}</p>` : ""}
         <p><span class="k">Signed</span>${c.is_signed ? "Yes" : "No"}</p>
+        <p><span class="k">Remark</span>${c.has_remark ? "Yes" : "No"}</p>
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
         ${c.current_value_cents != null ? `<p><span class="k">Current value (shared by the collector)</span>${esc(money(c.current_value_cents))}</p>` : ""}
         ${c.status === "for_sale" && c.asking_price_cents != null ? `<p><span class="k">Asking price</span><strong style="color:var(--accent)">${esc(money(c.asking_price_cents))}</strong></p>` : ""}
@@ -1029,6 +1036,10 @@ function addFromCommunity(id) {
 function comicFormHtml(c, prefill = null) {
   const v = c ? myValues.get(c.id) : null;
   const status = c?.status || "owned";
+  // A found book's grade must land in the Grade box even when it isn't one
+  // of the stock options (same trick the cover scan uses).
+  const gradeVal = c?.grade || prefill?.grade || "";
+  const gradeOptions = gradeVal && !GRADES.includes(gradeVal) ? [...GRADES, gradeVal] : GRADES;
   return `
     ${prefill ? `<p class="scan-status" style="margin:0 0 .75rem">Pre-filled from Book Search — check it over, then save.</p>` : ""}
     <div class="field"><label class="label" for="cf-title">Title *</label>
@@ -1040,8 +1051,8 @@ function comicFormHtml(c, prefill = null) {
     <div class="field"><label class="label" for="cf-variant">Variant / edition</label>
       <input class="input" id="cf-variant" maxlength="200" value="${esc(c?.variant || prefill?.variant || "")}" /></div>
     <div class="field"><label class="label" for="cf-grade">Grade</label>
-      <select class="input" id="cf-grade">${GRADES.map((g) => `<option value="${esc(g)}" ${g === (c?.grade || prefill?.grade || "") ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
-    <div class="field"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label></div>
+      <select class="input" id="cf-grade">${gradeOptions.map((g) => `<option value="${esc(g)}" ${g === gradeVal ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
+    <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label><label class="check"><input type="checkbox" id="cf-remark" ${c?.has_remark ? "checked" : ""} /> Has a remark</label></div>
     <div class="field"><label class="label" for="cf-status">Status</label>
       <select class="input" id="cf-status">
         ${[["owned", "On my shelf"], ["for_sale", "For sale"], ["wishlist", "Wishlist"], ["sold", "Sold"]].map(([val, label]) => `<option value="${val}" ${val === status ? "selected" : ""}>${label}</option>`).join("")}
@@ -1057,8 +1068,6 @@ function comicFormHtml(c, prefill = null) {
     <h3 style="font-size:15px;margin:1rem 0 .5rem">Your private numbers — only you ever see these</h3>
     <div class="field"><label class="label" for="cf-paid">What you paid ($)</label>
       <input class="input" id="cf-paid" inputmode="decimal" value="${esc(centsToDollars(v?.purchase_price_cents))}" /></div>
-    <div class="field"><label class="label" for="cf-value">Current value ($)</label>
-      <input class="input" id="cf-value" inputmode="decimal" value="${esc(centsToDollars(v?.current_value_cents))}" /></div>
     <div class="field"><label class="label" for="cf-date">Purchase date</label>
       <input class="input" id="cf-date" type="date" value="${esc(v?.purchase_date || "")}" /></div>
     <div class="field"><label class="label" for="cf-source">Bought from (seller / shop)</label>
@@ -1098,6 +1107,12 @@ async function uploadCover(file, comicId) {
   const { data } = sb.storage.from("covers").getPublicUrl(path);
   return data.publicUrl;
 }
+// True when the database doesn't have the comics.has_remark column yet
+// (the one-time SQL in supabase/add-has-remark.sql adds it). PostgREST
+// answers PGRST204 for an unknown column in a write payload.
+function isMissingRemarkColumn(error) {
+  return !!error && (error.code === "PGRST204" || /has_remark/.test(error.message || ""));
+}
 async function onComicSubmit(e) {
   e.preventDefault();
   if (busy) return;
@@ -1117,6 +1132,7 @@ async function onComicSubmit(e) {
       variant: $("#cf-variant").value.trim(),
       grade: $("#cf-grade").value,
       is_signed: $("#cf-signed").checked,
+      has_remark: $("#cf-remark").checked,
       status,
       asking_price_cents: asking,
       cover_color: $("#cf-color").value,
@@ -1124,12 +1140,22 @@ async function onComicSubmit(e) {
     if (!fields.title) throw new Error("The book needs a title.");
     let id = comicId;
     if (id) {
-      const { error } = await sb.from("comics").update(fields).eq("id", id);
+      let { error } = await sb.from("comics").update(fields).eq("id", id);
+      if (error && isMissingRemarkColumn(error)) {
+        // The one-time remark SQL hasn't been run in Supabase yet — save
+        // everything else rather than failing the whole book.
+        const { has_remark, ...rest } = fields;
+        ({ error } = await sb.from("comics").update(rest).eq("id", id));
+      }
       if (error) throw error;
     } else {
-      const { data, error } = await sb.from("comics").insert({ ...fields, collector_id: myProfile.id }).select("id").single();
-      if (error) throw error;
-      id = data.id;
+      let res = await sb.from("comics").insert({ ...fields, collector_id: myProfile.id }).select("id").single();
+      if (res.error && isMissingRemarkColumn(res.error)) {
+        const { has_remark, ...rest } = fields;
+        res = await sb.from("comics").insert({ ...rest, collector_id: myProfile.id }).select("id").single();
+      }
+      if (res.error) throw res.error;
+      id = res.data.id;
     }
     const file = $("#cf-cover").files?.[0];
     if (file) {
@@ -1140,7 +1166,7 @@ async function onComicSubmit(e) {
     const { error: vErr } = await sb.from("comic_values").upsert({
       comic_id: id,
       purchase_price_cents: dollarsToCents($("#cf-paid").value),
-      current_value_cents: dollarsToCents($("#cf-value").value),
+      current_value_cents: comicId ? (myValues.get(comicId)?.current_value_cents ?? null) : null,
       purchase_date: $("#cf-date").value || null,
       source: $("#cf-source").value.trim(),
       notes: $("#cf-notes").value.trim(),

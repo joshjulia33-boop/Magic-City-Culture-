@@ -17,7 +17,7 @@ host — no build step, no server of its own.
 ## Features
 
 - **Gallery** — every book from the `gallery_comics` view: search,
-  filters (cover art / signed / graded / for sale), optional grouping by
+  filters (cover art / signed / remarqued / graded / for sale), optional grouping by
   collector, community stats. A book's current value appears only where
   the view exposes it (the owner opted in); price paid is never public.
 - **Collectors** — public profiles from `public_profiles`, each opening a
@@ -38,7 +38,7 @@ host — no build step, no server of its own.
   storage bucket), list a book for sale or unlist it, and the
   **show values publicly** toggle (off by default). The book grid has
   the same search and filter chips as the Gallery (all books / with
-  cover art / signed / graded / for sale), applied to the member's own
+  cover art / signed / remarqued / graded / for sale), applied to the member's own
   books only, in the same newest-first order.
 - **Referrals** — every member gets a personal invite link,
   `<site>/?ref=<handle>`, shown on My Shelf in a single **Invite a
@@ -85,6 +85,15 @@ host — no build step, no server of its own.
    nullable `collectors.referred_by` column and exposes it on the
    `public_profiles` view, so invites can be recorded and counted.
    Safe to re-run.
+5. Remark flag (one-time): in the same SQL editor, run
+   `../supabase/add-has-remark.sql` (after `schema.sql`). It adds
+   `comics.has_remark` and projects it through the gallery/listings
+   views, enabling the "Has a remark" tick in the add/edit form
+   (right next to Signed), the REMARQUED badge, and the Remarqued
+   filter chips. Until it is run, books still save normally — the
+   tick just doesn't persist yet. The add/edit form no longer has a
+   Current value box: stored values and the shelf totals are
+   untouched, and saving a book keeps whatever value it already had.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour
