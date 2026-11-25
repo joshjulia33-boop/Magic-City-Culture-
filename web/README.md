@@ -32,6 +32,32 @@ host — no build step, no server of its own.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).
+- **Photo identification (Add/Edit Book only)** — the top of the add/edit
+  book form is a single **Find Your Book** section with two big buttons,
+  **📷 Take a photo** (a file input with `capture="environment"`, so the
+  phone opens its camera) and **Pick a photo** (gallery/files). It is the
+  only photo-identification control on the site, and because add and edit
+  share the one form, it appears in both modes and nowhere else. Taking
+  or picking a photo runs two passes **in parallel**, and each fills only
+  fields that are still empty — nothing is ever auto-saved, and the photo
+  becomes the book's cover on save exactly as before:
+  1. **On-device OCR** (Tesseract.js, downscaled canvas) — printed titles
+     and slab labels: title, issue, grader + grade.
+  2. **AI artwork identification** — the photo (downscaled to a 1024px
+     JPEG) goes to the `identify-cover` Supabase Edge Function
+     (`../supabase/functions/identify-cover/`), which looks at the
+     artwork itself with a vision model: printed details, slab label,
+     signed/remarque, cover types. When there is **no printed title —
+     a virgin cover** — it describes the artwork and runs one
+     search-grounded match against comic databases and catalogues
+     (GCD, Comic Vine, League of Comic Geeks, retailer/publisher
+     listings), stopping at the first strong, source-backed match and
+     naming that source. No genuine match = the form stays empty with
+     an honest no-match line; low-confidence matches are flagged.
+     The AI result is applied the moment it lands, not after OCR.
+  Until deploy step 7 below is done, pass 2 is simply unavailable (404 /
+  503 from the functions endpoint) and the status line says artwork
+  matching "isn't switched on yet" — OCR keeps working regardless.
 - **My Shelf** — the member's own books and their private numbers from
   `comic_values` (owner-only in the database): totals paid / current
   value, add & edit books (including cover photo upload to the `covers`
@@ -108,6 +134,24 @@ host — no build step, no server of its own.
    new book's placeholder tile just gets a colour from the site
    palette automatically, and existing books keep the colour they
    already have.
+
+7. AI photo identification (one-time): deploy the `identify-cover`
+   Supabase Edge Function so the AI pass of photo identification —
+   above all matching **virgin covers** from their artwork — can run.
+   The static front end cannot hold an AI key, which is why this lives
+   in a function:
+   1. Get a free Gemini API key from Google AI Studio
+      (aistudio.google.com → "Get API key").
+   2. Supabase dashboard → project `ekdgbjnztnfrfjrhljpz` →
+      **Edge Functions** → create a function named `identify-cover`
+      with the contents of `../supabase/functions/identify-cover/index.ts`
+      and deploy it (or `supabase functions deploy identify-cover`).
+   3. **Edge Functions → Secrets**: add `GEMINI_API_KEY` = that key.
+      (Optional: `GEMINI_MODEL` overrides the default
+      `gemini-2.5-flash`.)
+   Nothing else changes: the form already calls the function and
+   degrades honestly until it exists — books save, OCR reads printed
+   titles/labels, and only the artwork-matching pass waits on this step.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

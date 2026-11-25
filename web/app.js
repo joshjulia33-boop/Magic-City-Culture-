@@ -1063,6 +1063,18 @@ function comicFormHtml(c, prefill = null) {
   const coverTypeList = [...COVER_TYPES, ...coverTypeSel.filter((t) => !COVER_TYPES.includes(t))];
   return `
     ${prefill ? `<p class="scan-status" style="margin:0 0 .75rem">Pre-filled from Book Search — check it over, then save.</p>` : ""}
+    <section class="find-book" aria-labelledby="cf-find-book">
+      <span class="label" id="cf-find-book">Find your book</span>
+      <p class="form-note" style="margin-bottom:.6rem">Take a photo of the cover — or of the slab label — and the site tries to identify the book and fill in what it finds. It reads printed titles and labels, and for a cover with no title on it (a virgin cover) it tries to match the artwork itself. Nothing is saved until you check it over and save.${c?.cover_url ? " A cover photo is already set — a new photo replaces it." : ""} The photo becomes the book's cover when you save.</p>
+      <div class="photo-actions">
+        <label class="btn btn-pink photo-btn" for="cf-photo-camera">\U0001F4F7 Take a photo</label>
+        <label class="btn btn-blue photo-btn" for="cf-photo-pick">Pick a photo</label>
+      </div>
+      <input class="photo-input" id="cf-photo-camera" type="file" accept="image/*" capture="environment" />
+      <input class="photo-input" id="cf-photo-pick" type="file" accept="image/*" />
+      ${c?.cover_url ? `<img id="cf-photo-preview" class="photo-preview" alt="Cover photo for this book" src="${esc(c.cover_url)}" />` : `<img id="cf-photo-preview" class="photo-preview" alt="Cover photo for this book" hidden />`}
+      <p class="scan-status" id="cf-scan-status" role="status" hidden></p>
+    </section>
     <div class="field"><label class="label" for="cf-title">Title *</label>
       <input class="input" id="cf-title" required maxlength="160" value="${esc(c?.title || prefill?.title || "")}" /></div>
     <div class="field"><label class="label" for="cf-issue">Issue</label>
@@ -1083,10 +1095,6 @@ function comicFormHtml(c, prefill = null) {
     <div class="field" id="cf-asking-wrap" ${status === "for_sale" ? "" : 'style="display:none"'}>
       <label class="label" for="cf-asking">Asking price ($) — public, it's your offer to everyone</label>
       <input class="input" id="cf-asking" inputmode="decimal" value="${esc(centsToDollars(c?.asking_price_cents))}" placeholder="25" /></div>
-    <div class="field"><label class="label" for="cf-cover">Cover photo (optional)</label>
-      <input class="input" id="cf-cover" type="file" accept="image/*" />
-      <p class="form-note" style="margin-top:.3rem">${c?.cover_url ? "A cover photo is set — choosing a new one replaces it. " : ""}Pick a clear photo of the cover or the slab label and we'll try to read the title, issue and grade off it for you.</p>
-      <p class="scan-status" id="cf-scan-status" role="status" hidden></p></div>
     <h3 style="font-size:15px;margin:1rem 0 .5rem">Your private numbers — only you ever see these</h3>
     <div class="field"><label class="label" for="cf-paid">What you paid ($)</label>
       <input class="input" id="cf-paid" inputmode="decimal" value="${esc(centsToDollars(v?.purchase_price_cents))}" /></div>
@@ -1115,11 +1123,14 @@ function openComicForm(comicId = null, prefill = null) {
     const btn = e.target.closest("[data-cover-type]");
     if (btn) btn.setAttribute("aria-pressed", btn.getAttribute("aria-pressed") === "true" ? "false" : "true");
   });
-  const coverInput = $("#cf-cover");
-  if (coverInput) coverInput.addEventListener("change", () => {
-    const f = coverInput.files?.[0];
-    if (f) scanCoverPhoto(f);
-  });
+  comicPhotoFile = null;
+  for (const inputId of ["#cf-photo-camera", "#cf-photo-pick"]) {
+    const input = $(inputId);
+    if (input) input.addEventListener("change", () => {
+      const f = input.files?.[0];
+      if (f) onCoverPhotoChosen(f);
+    });
+  }
   $("#cf-status").addEventListener("change", (e) => {
     $("#cf-asking-wrap").style.display = e.target.value === "for_sale" ? "" : "none";
   });
@@ -1194,7 +1205,7 @@ async function onComicSubmit(e) {
       payload = rest;
     }
     if (writeErr) throw writeErr;
-    const file = $("#cf-cover").files?.[0];
+    const file = comicPhotoFile;
     if (file) {
       const url = await uploadCover(file, id);
       const { error } = await sb.from("comics").update({ cover_url: url }).eq("id", id);
@@ -1340,13 +1351,13 @@ async function scanCoverPhoto(file) {
   try {
     const { img, url } = await scanLoadImage(file);
     try {
-      const first = (await window.Tesseract.recognize(scanCanvas(img, 1, 1600), "eng")).data;
+      const first = (await window.Tesseract.recognize(scanCanvas(img, 1, 1280), "eng")).data;
       let grade = scanFindGrade(first.text);
       let title = scanFindTitle(first, first.text);
       let issue = scanFindIssue(first.text, title);
       if (!grade) {
         // Slab labels sit at the top of the case — look closer there.
-        const top = (await window.Tesseract.recognize(scanCanvas(img, 0.34, 1600), "eng")).data;
+        const top = (await window.Tesseract.recognize(scanCanvas(img, 0.34, 1280), "eng")).data;
         grade = scanFindGrade(top.text);
         if (!title) title = scanFindTitle(top, top.text);
         if (!issue) issue = scanFindIssue(top.text, title);
@@ -1373,6 +1384,172 @@ async function scanCoverPhoto(file) {
     if (s) s.textContent = "Couldn't read that photo — no problem, just fill the form in as usual.";
   } finally {
     scanBusy = false;
+  }
+}
+
+/* ---------------- photo identification (Add/Edit Book only) ------------
+   Both photo inputs at the top of the comic form feed this one pipeline,
+   and this form is the only place on the site that has it. Pass 1 is the
+   on-device OCR scan above: printed titles and slab labels. Pass 2 is the
+   AI pass for covers OCR can't name — above all virgin covers with no
+   title: the identify-cover Supabase Edge Function looks at the artwork
+   itself, describes it, searches comic databases and the web with that
+   description, and only fills the form when a result genuinely matches
+   the artwork (it names its source; a no-match stays a no-match). Until
+   that function is deployed (see web/README.md, deploy step 7), pass 2
+   simply isn't available and the status line says so rather than
+   pretending. Nothing here ever saves — the member confirms, then saves,
+   and the photo becomes the cover through the normal upload on save. */
+let comicPhotoFile = null;
+let identifyBusy = false;
+
+function setScanStatus(text) {
+  const s = $("#cf-scan-status");
+  if (s) { s.hidden = false; s.textContent = text; }
+}
+
+function onCoverPhotoChosen(file) {
+  comicPhotoFile = file;
+  const preview = $("#cf-photo-preview");
+  if (preview) { preview.src = URL.createObjectURL(file); preview.hidden = false; }
+  identifyCoverPhoto(file);
+}
+
+async function photoDataUrl(file) {
+  // Downscale camera shots to a 1024px JPEG data URL for the AI pass
+  // (this is also what makes phone formats like HEIC sendable when the
+  // browser can decode them at all).
+  try {
+    const { img, url } = await scanLoadImage(file);
+    try {
+      return scanCanvas(img, 1, 1024).toDataURL("image/jpeg", 0.8);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function aiIdentifyCover(file) {
+  const cfg = window.MCC_CONFIG || {};
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_PUBLISHABLE_KEY) return null;
+  try {
+    const dataUrl = await photoDataUrl(file);
+    if (!dataUrl) return null;
+    let token = cfg.SUPABASE_PUBLISHABLE_KEY;
+    try {
+      const { data } = await sb.auth.getSession();
+      if (data?.session?.access_token) token = data.session.access_token;
+    } catch { /* the publishable key alone is a valid gateway token */ }
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 60000);
+    let res;
+    try {
+      res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/identify-cover`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: cfg.SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          image: dataUrl,
+          ocr: {
+            title: $("#cf-title")?.value || "",
+            issue: $("#cf-issue")?.value || "",
+            grade: $("#cf-grade")?.value || "",
+          },
+        }),
+        signal: ctl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    // 404 = function not deployed yet; 503 = deployed without its AI key.
+    // Either way the AI pass just isn't available — never an error worth
+    // showing as one.
+    if (!res.ok) return null;
+    const out = await res.json();
+    return out && typeof out === "object" ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyAiIdentification(ai) {
+  const fill = (sel, val) => {
+    const el = $(sel);
+    if (el && val && !el.value.trim()) el.value = val;
+  };
+  fill("#cf-title", ai.title);
+  fill("#cf-issue", ai.issue);
+  if (ai.publisher) {
+    const pub = $("#cf-publisher");
+    if (pub && [...pub.options].some((o) => o.value === ai.publisher)) pub.value = ai.publisher;
+  }
+  fill("#cf-variant", ai.variant);
+  if (ai.grade) {
+    const g = $("#cf-grade");
+    if (g) {
+      if (![...g.options].some((o) => o.value === ai.grade)) g.add(new Option(ai.grade, ai.grade));
+      g.value = ai.grade;
+    }
+  }
+  if (ai.isSigned) { const el = $("#cf-signed"); if (el) el.checked = true; }
+  if (ai.isRemarqued) { const el = $("#cf-remark"); if (el) el.checked = true; }
+  if (Array.isArray(ai.coverTypes)) {
+    const chips = [...document.querySelectorAll("#cf-cover-types [data-cover-type]")];
+    for (const t of ai.coverTypes) {
+      const btn = chips.find((b) => b.dataset.coverType.toLowerCase() === String(t).toLowerCase());
+      if (btn) btn.setAttribute("aria-pressed", "true");
+    }
+  }
+  if (ai.certNumber) {
+    const n = $("#cf-notes");
+    if (n && !n.value.includes(ai.certNumber)) {
+      n.value = `${n.value ? `${n.value} ` : ""}Cert #${ai.certNumber}`.slice(0, 500);
+    }
+  }
+  setScanStatus(aiStatusText(ai));
+}
+
+function aiStatusText(ai) {
+  const bits = [[ai.title, ai.issue].filter(Boolean).join(" "), ai.variant, ai.grade].filter(Boolean).join(" — ");
+  return `AI match: ${bits || "book identified"}${ai.sourceName ? ` (source: ${ai.sourceName})` : ""}${ai.confidence === "low" ? " — low confidence, double-check it" : ""}. Check it over, fix anything off, then save.`;
+}
+
+async function identifyCoverPhoto(file) {
+  if (identifyBusy) {
+    setScanStatus("Still reading the last photo — give it a few seconds, then pick this photo again to read it.");
+    return;
+  }
+  identifyBusy = true;
+  try {
+    // Fast first: both passes start together — on-device OCR for printed
+    // titles and slab labels, and the AI artwork identification (virgin
+    // covers especially). Whichever finds the book fills the form; the
+    // AI result is applied the moment it lands rather than waiting for
+    // the slower pass to finish.
+    const ocrPromise = scanCoverPhoto(file);
+    const aiPromise = aiIdentifyCover(file).then((ai) => {
+      if (ai && ai.ok) applyAiIdentification(ai);
+      return ai;
+    });
+    const ai = await aiPromise;
+    await ocrPromise;
+    const ocrFound = !!($("#cf-title")?.value.trim() || $("#cf-grade")?.value);
+    if (ai && ai.ok) {
+      // OCR may have written its own status line after the AI landed —
+      // the AI match is the headline result, so put it back on top.
+      setScanStatus(aiStatusText(ai));
+    } else if (!ocrFound) {
+      setScanStatus(ai && ai.message
+        ? ai.message
+        : "Couldn't read that cover — fill the form in as usual, and the photo still becomes its cover. (Artwork matching for covers with no title isn't switched on yet.)");
+    }
+  } finally {
+    identifyBusy = false;
   }
 }
 
