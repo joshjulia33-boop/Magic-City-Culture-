@@ -136,6 +136,15 @@ nav.main-nav {
 .input:focus { outline: none; border-color: var(--accent); }
 .label { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 0.25rem; }
 .field { margin-bottom: 0.8rem; }
+.signer-suggest { display: flex; flex-direction: column; margin-top: 0.4rem; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.signer-suggest[hidden] { display: none; }
+.signer-suggest button {
+  text-align: left; background: var(--surface); color: var(--text);
+  border: none; border-bottom: 1px solid var(--border);
+  padding: 0.7rem 0.75rem; font-size: 15px; font-weight: 600; min-height: 2.75rem;
+}
+.signer-suggest button:last-child { border-bottom: none; }
+.signer-suggest button:active { background: var(--accent); color: #fff; }
 .check { display: flex; align-items: center; gap: 0.5rem; font-weight: 600; font-size: 14px; }
 .check input { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
 .swatches { display: flex; flex-wrap: wrap; gap: 0.45rem; }

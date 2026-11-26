@@ -56,7 +56,7 @@ host — no build step, no server of its own.
   save exactly as before. There is deliberately **no on-device OCR**:
   letters read off stylised cover art are gibberish, not an
   identification, so the form never fills from them.
-  Until deploy step 7 below is done, identification is simply
+  Until deploy step 8 below is done, identification is simply
   unavailable (404 / 503 from the functions endpoint) and the status
   line says so — manual entry always works.
 - **My Shelf** — the member's own books and their private numbers from
@@ -136,7 +136,18 @@ host — no build step, no server of its own.
    palette automatically, and existing books keep the colour they
    already have.
 
-7. AI photo identification (one-time): deploy the `identify-cover`
+7. Signed-by name (one-time): in the same SQL editor, run
+   `../supabase/add-signed-by.sql` (after `schema.sql` and
+   `add-cover-type.sql`). It adds the nullable `comics.signed_by`
+   column and projects it through the gallery/listings views,
+   enabling the "Signed by (artist name)" box under the Signed tick
+   in the add/edit form and the "Signed by" line in the book detail
+   view. The box autocompletes from `artists.js` — a researched
+   roster of 367 artists (cover and variant-cover artists especially),
+   merged with every distinct signed-by name already saved on the
+   site's books; free typing always works. Until the SQL is run,
+   books still save normally — the name just doesn't persist yet.
+8. AI photo identification (one-time): deploy the `identify-cover`
    Supabase Edge Function so the AI pass of photo identification —
    above all matching **virgin covers** from their artwork — can run.
    The static front end cannot hold an AI key, which is why this lives

@@ -153,6 +153,9 @@ create table if not exists public.comics (
   variant             text not null default '',
   grade               text not null default '',
   is_signed           boolean not null default false,
+  -- Name of the artist who signed the copy, free text typed into the
+  -- "Signed by (artist name)" box under the Signed tick. NULL/'' = none.
+  signed_by           text,
   has_remark          boolean not null default false,
   -- Cover types / finishes the member tapped in the form, comma-joined
   -- ("Virgin, Foil") — a cover can be several at once. '' = none picked.
@@ -381,7 +384,8 @@ select cm.id,
        case when col.show_values_publicly then cv.current_value_cents end
          as current_value_cents,
        cm.has_remark,
-       cm.cover_type
+       cm.cover_type,
+       cm.signed_by
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -397,7 +401,8 @@ select cm.id as comic_id,
        col.handle       as seller_handle,
        cm.updated_at    as listed_at,
        cm.has_remark,
-       cm.cover_type
+       cm.cover_type,
+       cm.signed_by
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';

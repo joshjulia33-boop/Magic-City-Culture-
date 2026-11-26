@@ -23,6 +23,32 @@ const COVER_TYPES = ["Standard", "Metal", "Leather", "Foil", "Holographic", "Chr
 function coverTypesOf(c) {
   return String(c?.cover_type || "").split(",").map((t) => t.trim()).filter(Boolean);
 }
+// Autocomplete for the "Signed by" box: the researched artist roster in
+// artists.js (window.SIGNER_ARTISTS — cover and variant-cover artists
+// especially, classic through modern), merged at form-open time with
+// every distinct signed_by name already saved on the site's books, so a
+// name typed once is offered again. Suggestions only — any name can
+// still be typed and saved as-is. The inline list is just a fallback
+// in case artists.js fails to load.
+const SIGNER_ARTISTS = Array.isArray(window.SIGNER_ARTISTS) && window.SIGNER_ARTISTS.length
+  ? window.SIGNER_ARTISTS
+  : ["Rob Liefeld", "John Giang", "Tyler Kirkham", "Peach Momoko", "Jae Lee", "Jim Lee", "Todd McFarlane", "Alex Ross", "Frank Miller", "Greg Capullo", "Tim Bradstreet", "Mico Suayan", "Katya Sinyukhina", "Daniel Warren Johnson", "Bjorn Barends"];
+function signerSuggestions() {
+  const names = new Map();
+  for (const n of SIGNER_ARTISTS) names.set(n.toLowerCase(), n);
+  for (const c of [...(typeof gallery !== "undefined" ? gallery : []), ...(typeof myComics !== "undefined" ? myComics : [])]) {
+    const n = String(c?.signed_by || "").trim();
+    if (n) names.set(n.toLowerCase(), n);
+  }
+  return [...names.values()].sort((a, b) => a.localeCompare(b));
+}
+function signerMatches(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return signerSuggestions()
+    .filter((n) => n.toLowerCase().split(/[\s(]+/).some((w) => w.startsWith(q)) || n.toLowerCase().includes(q))
+    .slice(0, 8);
+}
 // Tile colour for a book with no cover photo: the site just picks one
 // from the palette — members don't choose it any more.
 function pickTileColor() {
@@ -698,6 +724,7 @@ function openDetail(comicId) {
         ${c.variant ? `<p><span class="k">Variant</span>${esc(c.variant)}</p>` : ""}
         ${c.grade ? `<p><span class="k">Grade</span>${esc(c.grade)}</p>` : ""}
         <p><span class="k">Signed</span>${c.is_signed ? "Yes" : "No"}</p>
+        ${c.signed_by ? `<p><span class="k">Signed by</span>${esc(c.signed_by)}</p>` : ""}
         <p><span class="k">Remark</span>${c.has_remark ? "Yes" : "No"}</p>
         ${coverTypesOf(c).length ? `<p><span class="k">Cover</span>${esc(coverTypesOf(c).join(", "))}</p>` : ""}
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
@@ -900,6 +927,9 @@ function comicFormHtml(c, prefill = null) {
     <div class="field"><label class="label" for="cf-grade">Grade</label>
       <select class="input" id="cf-grade">${gradeOptions.map((g) => `<option value="${esc(g)}" ${g === gradeVal ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
     <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label><label class="check"><input type="checkbox" id="cf-remark" ${c?.has_remark ? "checked" : ""} /> Has a remark</label></div>
+    <div class="field" id="cf-signedby-wrap" ${c?.is_signed ? "" : 'style="display:none"'}><label class="label" for="cf-signedby">Signed by (artist name)</label>
+      <input class="input" id="cf-signedby" maxlength="120" value="${esc(c?.signed_by || "")}" placeholder="Who signed it — e.g. Rob Liefeld" autocomplete="off" />
+      <div class="signer-suggest" id="cf-signedby-suggest" hidden></div></div>
     <div class="field"><span class="label">Cover type — tap all that fit</span>
       <div class="filter-row" id="cf-cover-types" style="margin-top:.35rem">${coverTypeList.map((t) => `<button type="button" class="chip" data-cover-type="${esc(t)}" aria-pressed="${coverTypeSel.includes(t) ? "true" : "false"}">${esc(t)}</button>`).join("")}</div></div>
     <div class="field"><label class="label" for="cf-status">Status</label>
@@ -945,6 +975,30 @@ function openComicForm(comicId = null, prefill = null) {
       if (f) onCoverPhotoChosen(f);
     });
   }
+  $("#cf-signed").addEventListener("change", (e) => {
+    $("#cf-signedby-wrap").style.display = e.target.checked ? "" : "none";
+    if (!e.target.checked) $("#cf-signedby-suggest").hidden = true;
+  });
+  const signedByInput = $("#cf-signedby");
+  const signedBySuggest = $("#cf-signedby-suggest");
+  const renderSignerSuggest = () => {
+    const matches = signerMatches(signedByInput.value)
+      .filter((n) => n.toLowerCase() !== signedByInput.value.trim().toLowerCase());
+    if (!matches.length) { signedBySuggest.hidden = true; signedBySuggest.innerHTML = ""; return; }
+    signedBySuggest.innerHTML = matches.map((n) => `<button type="button" data-signer="${esc(n)}">${esc(n)}</button>`).join("");
+    signedBySuggest.hidden = false;
+  };
+  signedByInput.addEventListener("input", renderSignerSuggest);
+  signedByInput.addEventListener("focus", renderSignerSuggest);
+  signedByInput.addEventListener("blur", () => { setTimeout(() => { signedBySuggest.hidden = true; }, 150); });
+  // mousedown fires before the input's blur, so a tap always lands.
+  signedBySuggest.addEventListener("mousedown", (e) => {
+    const btn = e.target.closest("[data-signer]");
+    if (!btn) return;
+    e.preventDefault();
+    signedByInput.value = btn.dataset.signer;
+    signedBySuggest.hidden = true;
+  });
   $("#cf-status").addEventListener("change", (e) => {
     $("#cf-asking-wrap").style.display = e.target.value === "for_sale" ? "" : "none";
   });
@@ -959,7 +1013,8 @@ async function uploadCover(file, comicId) {
   return data.publicUrl;
 }
 // The newer comics columns arrive by one-time SQL (has_remark via
-// supabase/add-has-remark.sql, cover_type via supabase/add-cover-type.sql).
+// supabase/add-has-remark.sql, cover_type via supabase/add-cover-type.sql,
+// signed_by via supabase/add-signed-by.sql).
 // Until that SQL runs, PostgREST answers PGRST204 and names the column in
 // the message — the save then drops just that field and goes through.
 function missingColumnOf(error) {
@@ -967,6 +1022,7 @@ function missingColumnOf(error) {
   const msg = error.message || "";
   if (error.code !== "PGRST204" && !/column/i.test(msg)) return null;
   if (/cover_type/.test(msg)) return "cover_type";
+  if (/signed_by/.test(msg)) return "signed_by";
   if (/has_remark/.test(msg)) return "has_remark";
   return error.code === "PGRST204" ? "has_remark" : null;
 }
@@ -989,6 +1045,7 @@ async function onComicSubmit(e) {
       variant: $("#cf-variant").value.trim(),
       grade: $("#cf-grade").value,
       is_signed: $("#cf-signed").checked,
+      signed_by: $("#cf-signed").checked ? $("#cf-signedby").value.trim() : "",
       has_remark: $("#cf-remark").checked,
       cover_type: [...document.querySelectorAll('#cf-cover-types [aria-pressed="true"]')].map((b) => b.dataset.coverType).join(", "),
       status,
@@ -1188,7 +1245,7 @@ function applyAiIdentification(ai) {
       g.value = ai.grade;
     }
   }
-  if (ai.isSigned) { const el = $("#cf-signed"); if (el) el.checked = true; }
+  if (ai.isSigned) { const el = $("#cf-signed"); if (el) { el.checked = true; const w = $("#cf-signedby-wrap"); if (w) w.style.display = ""; } }
   if (ai.isRemarqued) { const el = $("#cf-remark"); if (el) el.checked = true; }
   if (ai.certNumber) {
     const n = $("#cf-notes");
