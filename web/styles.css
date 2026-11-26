@@ -249,6 +249,7 @@ nav.main-nav {
 .badges { display: flex; flex-wrap: wrap; gap: 0.25rem; position: relative; }
 .badge { font-size: 10px; font-weight: 800; letter-spacing: 0.04em; padding: 0.12rem 0.4rem; border-radius: 3px; background: #000; color: #fff; }
 .badge.signed { background: var(--blue); color: #000; }
+.badge.coa { background: #f5c542; color: #000; }
 .badge.remark { background: #ff7a1a; color: #000; }
 .badge.covertype { background: #7b2ff7; color: #fff; }
 .badge.sale { background: var(--accent); color: #fff; }
@@ -356,6 +357,40 @@ textarea.copy-text { font-size: 13px; line-height: 1.45; }
 .center-note .big { font-family: var(--font-display); font-size: 20px; margin: 0 0 0.5rem; }
 .center-note p { color: #c9c5ef; }
 footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; color: var(--dim); font-size: 13px; text-align: center; }
+
+/* ---------- book photos: detail gallery, listing strip, form extras ---------- */
+.photo-gallery { display: grid; gap: 0.6rem; }
+.detail-photo-main {
+  width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block;
+  border-radius: 8px; border: 2px solid #000; background: #0d0b24;
+}
+.photo-thumbs { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.photo-thumb {
+  width: 3.4rem; height: 4.6rem; padding: 0; overflow: hidden;
+  border-radius: 6px; border: 2px solid var(--border); background: #0d0b24;
+}
+.photo-thumb[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px #000; }
+.photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.listing-photos { padding: 0.55rem 0.6rem 0; }
+.listing-photos .lp-label { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; color: var(--blue); }
+.listing-photos .lp-row { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
+.lp-thumb {
+  width: 2.9rem; height: 3.9rem; padding: 0; overflow: hidden;
+  border-radius: 5px; border: 1px solid var(--border); background: #0d0b24;
+}
+.lp-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.extra-photos {
+  border: 1px solid var(--border); background: var(--surface);
+  border-radius: var(--radius); padding: 0.85rem; margin-bottom: 1rem;
+}
+.photo-count { font-size: 13px; font-weight: 800; color: var(--blue); margin: 0 0 0.6rem; }
+.extra-photo-list { display: grid; gap: 0.55rem; margin-bottom: 0.7rem; }
+.extra-photo-item {
+  display: flex; align-items: center; gap: 0.65rem;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem; background: var(--bg);
+}
+.extra-photo-item img { width: 2.9rem; height: 3.9rem; object-fit: cover; border-radius: 5px; flex: none; }
+.extra-photo-item span { flex: 1; font-size: 13px; font-weight: 700; color: var(--dim); }
 
 /* ---------- add/edit book: FIND YOUR BOOK photo section ----------
    The only photo-identification control on the site lives at the top of

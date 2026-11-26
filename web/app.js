@@ -23,6 +23,36 @@ const COVER_TYPES = ["Standard", "Metal", "Leather", "Foil", "Holographic", "Chr
 function coverTypesOf(c) {
   return String(c?.cover_type || "").split(",").map((t) => t.trim()).filter(Boolean);
 }
+// Extra photos live in comics.extra_photos as a JSON array of storage
+// URLs — the back cover, corner/page close-ups and the COA photo. The
+// main cover stays in cover_url, so a book holds 5 photos in total:
+// cover + up to 4 extras. Rows read before the one-time SQL runs (or
+// seeded rows) simply have no array yet.
+const MAX_BOOK_PHOTOS = 5;
+const MAX_EXTRA_PHOTOS = MAX_BOOK_PHOTOS - 1;
+function extraPhotosOf(c) {
+  let v = c?.extra_photos;
+  if (typeof v === "string") {
+    try { v = JSON.parse(v); } catch { v = []; }
+  }
+  if (!Array.isArray(v)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const u of v) {
+    const url = String(u || "").trim();
+    if (!url || url === c?.cover_url || seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+    if (out.length >= MAX_EXTRA_PHOTOS) break;
+  }
+  return out;
+}
+function bookPhotos(c) {
+  const urls = [];
+  if (c?.cover_url) urls.push(c.cover_url);
+  for (const u of extraPhotosOf(c)) if (!urls.includes(u)) urls.push(u);
+  return urls.slice(0, MAX_BOOK_PHOTOS);
+}
 // Autocomplete for the "Signed by" box: the researched artist roster in
 // artists.js (window.SIGNER_ARTISTS — cover and variant-cover artists
 // especially, classic through modern), merged at form-open time with
@@ -160,6 +190,7 @@ function avatarHtml(p, size = "md") {
 function badgesHtml(c) {
   let h = "";
   if (c.is_signed) h += `<span class="badge signed">SIGNED</span>`;
+  if (c.has_coa) h += `<span class="badge coa">COA</span>`;
   if (c.has_remark) h += `<span class="badge remark">REMARQUED</span>`;
   for (const t of coverTypesOf(c)) h += `<span class="badge covertype">${esc(t.toUpperCase())}</span>`;
   if (c.grade) h += `<span class="badge">${esc(c.grade)}</span>`;
@@ -404,11 +435,20 @@ function orderCardHtml(o, mine) {
     ${!buying && o.status === "placed" ? `<button type="button" class="btn btn-pink btn-sm" data-action="complete-order" data-id="${o.id}">MARK COMPLETE — PAID &amp; HANDED OFF</button>` : ""}
   </div>`;
 }
+function listingPhotoStripHtml(l) {
+  const extras = extraPhotosOf(l);
+  if (!extras.length) return "";
+  return `<div class="listing-photos" aria-label="${extras.length} extra photo${extras.length === 1 ? "" : "s"} of this book">
+    <span class="lp-label">${bookPhotos(l).length} PHOTOS — TAP TO VIEW</span>
+    <div class="lp-row">${extras.map((u) => `<button type="button" class="lp-thumb" data-action="open-detail" data-id="${l.comic_id}" aria-label="View all photos of ${esc(l.title)} ${esc(l.issue)}"><img src="${esc(u)}" alt="" loading="lazy" decoding="async" /></button>`).join("")}</div>
+  </div>`;
+}
 function viewMarketHtml() {
   const cards = listings.map((l) => {
     const mine = myProfile && l.seller_id === myProfile.id;
     return `<article class="card">
       ${coverHtml({ ...l, id: l.comic_id, status: "for_sale" })}
+      ${listingPhotoStripHtml(l)}
       <div class="card-body">
         <p class="title">${esc(l.title)} ${esc(l.issue)}</p>
         <button type="button" class="owner-link" data-action="goto-profile" data-id="${l.seller_id}">${esc(l.seller_name)}</button>
@@ -708,6 +748,17 @@ async function copyTextFromField(inputId, btn) {
 function setView(v) { view = v; render(); window.scrollTo({ top: 0 }); }
 
 /* ---------------- detail modal (gallery / market) ---------------- */
+function detailGalleryHtml(c) {
+  const photos = bookPhotos(c);
+  if (!photos.length) return coverHtml(c, true);
+  return `<div class="photo-gallery">
+    <img id="detail-photo-main" class="detail-photo-main" src="${esc(photos[0])}" alt="Photo of ${esc(c.title)} ${esc(c.issue)}" />
+    <div class="photo-thumbs" role="group" aria-label="All photos of this book">
+      ${photos.map((u, i) => `<button type="button" class="photo-thumb" data-action="detail-photo" data-url="${esc(u)}" aria-pressed="${i === 0}" aria-label="Show photo ${i + 1} of ${photos.length}${i === 0 && c.cover_url ? " (the cover)" : ""}"><img src="${esc(u)}" alt="" loading="lazy" decoding="async" /></button>`).join("")}
+    </div>
+    <p class="form-note" style="margin:0">${photos.length} photo${photos.length === 1 ? "" : "s"} — cover first, then the back, corners and pages.</p>
+  </div>`;
+}
 function openDetail(comicId) {
   const c = gallery.find((x) => x.id === comicId) || (() => {
     const l = listings.find((x) => x.comic_id === comicId);
@@ -718,13 +769,14 @@ function openDetail(comicId) {
   openModal(`
     ${modalHead(`${c.title} ${c.issue}`)}
     <div class="detail-grid">
-      <div>${coverHtml(c, true)}</div>
+      <div>${detailGalleryHtml(c)}</div>
       <div class="detail-meta">
         ${c.publisher ? `<p><span class="k">Publisher</span>${esc(c.publisher)}</p>` : ""}
         ${c.variant ? `<p><span class="k">Variant</span>${esc(c.variant)}</p>` : ""}
         ${c.grade ? `<p><span class="k">Grade</span>${esc(c.grade)}</p>` : ""}
         <p><span class="k">Signed</span>${c.is_signed ? "Yes" : "No"}</p>
         ${c.signed_by ? `<p><span class="k">Signed by</span>${esc(c.signed_by)}</p>` : ""}
+        <p><span class="k">Certificate of Authenticity</span>${c.has_coa ? "Yes" : "No"}</p>
         <p><span class="k">Remark</span>${c.has_remark ? "Yes" : "No"}</p>
         ${coverTypesOf(c).length ? `<p><span class="k">Cover</span>${esc(coverTypesOf(c).join(", "))}</p>` : ""}
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
@@ -916,6 +968,18 @@ function comicFormHtml(c, prefill = null) {
       <p class="scan-status" id="cf-scan-status" role="status" hidden></p>
       <div id="cf-match-alts" class="filter-row" style="margin-top:.5rem" hidden></div>
     </section>
+    <section class="extra-photos" aria-labelledby="cf-extra-photos">
+      <span class="label" id="cf-extra-photos">More photos of this book</span>
+      <p class="form-note" style="margin-bottom:.6rem">Add the back cover, corner or page close-ups, or a photo of the certificate — buyers judge condition from these. Up to ${MAX_BOOK_PHOTOS} photos in total: the cover above plus up to ${MAX_EXTRA_PHOTOS} more here.</p>
+      <p class="photo-count" id="cf-photo-count" role="status"></p>
+      <div class="extra-photo-list" id="cf-extra-list"></div>
+      <div class="photo-actions">
+        <label class="btn btn-pink photo-btn" for="cf-extra-camera">📷 Take a photo</label>
+        <label class="btn btn-blue photo-btn" for="cf-extra-pick">Pick photos</label>
+      </div>
+      <input class="photo-input" id="cf-extra-camera" type="file" accept="image/*" capture="environment" />
+      <input class="photo-input" id="cf-extra-pick" type="file" accept="image/*" multiple />
+    </section>
     <div class="field"><label class="label" for="cf-title">Title *</label>
       <input class="input" id="cf-title" required maxlength="160" value="${esc(c?.title || prefill?.title || "")}" /></div>
     <div class="field"><label class="label" for="cf-issue">Issue</label>
@@ -930,6 +994,7 @@ function comicFormHtml(c, prefill = null) {
     <div class="field" id="cf-signedby-wrap" ${c?.is_signed ? "" : 'style="display:none"'}><label class="label" for="cf-signedby">Signed by (artist name)</label>
       <input class="input" id="cf-signedby" maxlength="120" value="${esc(c?.signed_by || "")}" placeholder="Who signed it — e.g. Rob Liefeld" autocomplete="off" />
       <div class="signer-suggest" id="cf-signedby-suggest" hidden></div></div>
+    <div class="field"><label class="check"><input type="checkbox" id="cf-coa" ${c?.has_coa ? "checked" : ""} /> COA — comes with a Certificate of Authenticity</label></div>
     <div class="field"><span class="label">Cover type — tap all that fit</span>
       <div class="filter-row" id="cf-cover-types" style="margin-top:.35rem">${coverTypeList.map((t) => `<button type="button" class="chip" data-cover-type="${esc(t)}" aria-pressed="${coverTypeSel.includes(t) ? "true" : "false"}">${esc(t)}</button>`).join("")}</div></div>
     <div class="field"><label class="label" for="cf-status">Status</label>
@@ -968,6 +1033,9 @@ function openComicForm(comicId = null, prefill = null) {
     if (btn) btn.setAttribute("aria-pressed", btn.getAttribute("aria-pressed") === "true" ? "false" : "true");
   });
   comicPhotoFile = null;
+  comicFormCoverUrl = c?.cover_url || "";
+  comicExtraPhotos = extraPhotosOf(c).map((url) => ({ kind: "url", url }));
+  renderExtraPhotos();
   for (const inputId of ["#cf-photo-camera", "#cf-photo-pick"]) {
     const input = $(inputId);
     if (input) input.addEventListener("change", () => {
@@ -975,6 +1043,22 @@ function openComicForm(comicId = null, prefill = null) {
       if (f) onCoverPhotoChosen(f);
     });
   }
+  for (const inputId of ["#cf-extra-camera", "#cf-extra-pick"]) {
+    const input = $(inputId);
+    if (input) input.addEventListener("change", () => {
+      addExtraPhotoFiles([...(input.files || [])]);
+      input.value = "";
+    });
+  }
+  const extraList = $("#cf-extra-list");
+  if (extraList) extraList.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-remove-extra]");
+    if (!btn) return;
+    const item = comicExtraPhotos[Number(btn.dataset.removeExtra)];
+    if (item?.kind === "file" && item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    comicExtraPhotos.splice(Number(btn.dataset.removeExtra), 1);
+    renderExtraPhotos();
+  });
   $("#cf-signed").addEventListener("change", (e) => {
     $("#cf-signedby-wrap").style.display = e.target.checked ? "" : "none";
     if (!e.target.checked) $("#cf-signedby-suggest").hidden = true;
@@ -1004,27 +1088,36 @@ function openComicForm(comicId = null, prefill = null) {
   });
   $("#comic-form").addEventListener("submit", onComicSubmit);
 }
-async function uploadCover(file, comicId) {
+async function uploadPhoto(file, comicId, tag = "cover") {
   const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-  const path = `${myProfile.id}/${comicId}-${Date.now()}.${ext}`;
+  const safeTag = String(tag || "photo").replace(/[^a-z0-9]/gi, "").toLowerCase() || "photo";
+  const path = `${myProfile.id}/${comicId}-${safeTag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const { error } = await sb.storage.from("covers").upload(path, file, { upsert: true, contentType: file.type || "image/jpeg" });
   if (error) throw error;
   const { data } = sb.storage.from("covers").getPublicUrl(path);
   return data.publicUrl;
 }
+async function uploadCover(file, comicId) {
+  return uploadPhoto(file, comicId, "cover");
+}
 // The newer comics columns arrive by one-time SQL (has_remark via
 // supabase/add-has-remark.sql, cover_type via supabase/add-cover-type.sql,
-// signed_by via supabase/add-signed-by.sql).
+// signed_by via supabase/add-signed-by.sql, extra_photos + has_coa via
+// supabase/add-extra-photos-coa.sql).
 // Until that SQL runs, PostgREST answers PGRST204 and names the column in
 // the message — the save then drops just that field and goes through.
-function missingColumnOf(error) {
+const OPTIONAL_COMIC_COLUMNS = ["extra_photos", "has_coa", "cover_type", "signed_by", "has_remark"];
+function missingColumnOf(error, payload) {
   if (!error) return null;
   const msg = error.message || "";
   if (error.code !== "PGRST204" && !/column/i.test(msg)) return null;
-  if (/cover_type/.test(msg)) return "cover_type";
-  if (/signed_by/.test(msg)) return "signed_by";
-  if (/has_remark/.test(msg)) return "has_remark";
-  return error.code === "PGRST204" ? "has_remark" : null;
+  for (const col of OPTIONAL_COMIC_COLUMNS) {
+    if (msg.includes(col) && payload && col in payload) return col;
+  }
+  if (error.code === "PGRST204" && payload) {
+    return OPTIONAL_COMIC_COLUMNS.find((col) => col in payload) || null;
+  }
+  return null;
 }
 async function onComicSubmit(e) {
   e.preventDefault();
@@ -1046,7 +1139,9 @@ async function onComicSubmit(e) {
       grade: $("#cf-grade").value,
       is_signed: $("#cf-signed").checked,
       signed_by: $("#cf-signed").checked ? $("#cf-signedby").value.trim() : "",
+      has_coa: $("#cf-coa").checked,
       has_remark: $("#cf-remark").checked,
+      extra_photos: comicExtraPhotos.filter((x) => x.kind === "url").map((x) => x.url),
       cover_type: [...document.querySelectorAll('#cf-cover-types [aria-pressed="true"]')].map((b) => b.dataset.coverType).join(", "),
       status,
       asking_price_cents: asking,
@@ -1058,7 +1153,8 @@ async function onComicSubmit(e) {
     let id = comicId;
     let payload = { ...fields };
     let writeErr = null;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const droppedColumns = new Set();
+    for (let attempt = 0; attempt < OPTIONAL_COMIC_COLUMNS.length + 1; attempt++) {
       let res;
       if (id) {
         res = await sb.from("comics").update(payload).eq("id", id);
@@ -1070,8 +1166,9 @@ async function onComicSubmit(e) {
       if (!writeErr) break;
       // A one-time SQL update hasn't been run in Supabase yet — save
       // everything else rather than failing the whole book.
-      const missing = missingColumnOf(writeErr);
+      const missing = missingColumnOf(writeErr, payload);
       if (!missing || !(missing in payload)) break;
+      droppedColumns.add(missing);
       const { [missing]: _dropped, ...rest } = payload;
       payload = rest;
     }
@@ -1080,6 +1177,16 @@ async function onComicSubmit(e) {
     if (file) {
       const url = await uploadCover(file, id);
       const { error } = await sb.from("comics").update({ cover_url: url }).eq("id", id);
+      if (error) throw error;
+    }
+    const newExtraFiles = comicExtraPhotos.filter((x) => x.kind === "file").map((x) => x.file);
+    if (newExtraFiles.length && !droppedColumns.has("extra_photos")) {
+      const uploaded = [];
+      for (let i = 0; i < newExtraFiles.length; i++) {
+        uploaded.push(await uploadPhoto(newExtraFiles[i], id, `extra${i + 1}`));
+      }
+      const allExtras = [...fields.extra_photos, ...uploaded].slice(0, MAX_EXTRA_PHOTOS);
+      const { error } = await sb.from("comics").update({ extra_photos: allExtras }).eq("id", id);
       if (error) throw error;
     }
     const { error: vErr } = await sb.from("comic_values").upsert({
@@ -1144,8 +1251,39 @@ function photoCanvas(img, topFraction, maxWidth) {
    confirms, then saves, and the photo becomes the cover through the
    normal upload on save. */
 let comicPhotoFile = null;
+let comicFormCoverUrl = "";
+// Extra photos staged in the open form: {kind:"url", url} for photos
+// already saved on the book, {kind:"file", file, previewUrl} for new
+// ones (uploaded on save, exactly like the cover).
+let comicExtraPhotos = [];
 let identifyBusy = false;
 let lastMatchAlts = [];
+
+function renderExtraPhotos() {
+  const list = $("#cf-extra-list");
+  const count = $("#cf-photo-count");
+  if (!list || !count) return;
+  const total = (comicFormCoverUrl || comicPhotoFile ? 1 : 0) + comicExtraPhotos.length;
+  count.textContent = `${total} of ${MAX_BOOK_PHOTOS} photos${total >= MAX_BOOK_PHOTOS ? " — full" : ""}`;
+  if (!comicExtraPhotos.length) {
+    list.innerHTML = `<p class="form-note" style="margin:0">No extra photos yet.</p>`;
+    return;
+  }
+  list.innerHTML = comicExtraPhotos.map((item, i) => `
+    <div class="extra-photo-item">
+      <img src="${esc(item.kind === "url" ? item.url : item.previewUrl)}" alt="Extra photo ${i + 1} of this book" loading="lazy" decoding="async" />
+      <span>Photo ${(comicFormCoverUrl || comicPhotoFile ? 2 : 1) + i}</span>
+      <button type="button" class="btn btn-ghost btn-sm" data-remove-extra="${i}">REMOVE</button>
+    </div>`).join("");
+}
+function addExtraPhotoFiles(files) {
+  for (const file of files) {
+    if (!file) continue;
+    if (comicExtraPhotos.length >= MAX_EXTRA_PHOTOS) break;
+    comicExtraPhotos.push({ kind: "file", file, previewUrl: URL.createObjectURL(file) });
+  }
+  renderExtraPhotos();
+}
 
 function setScanStatus(text) {
   const s = $("#cf-scan-status");
@@ -1156,6 +1294,7 @@ function onCoverPhotoChosen(file) {
   comicPhotoFile = file;
   const preview = $("#cf-photo-preview");
   if (preview) { preview.src = URL.createObjectURL(file); preview.hidden = false; }
+  renderExtraPhotos();
   identifyCoverPhoto(file);
 }
 
@@ -1441,6 +1580,14 @@ document.addEventListener("click", (e) => {
     case "gallery-filter": galleryFilter = el.dataset.filter; render(); break;
     case "shelf-filter": shelfFilter = el.dataset.filter; render(); break;
     case "open-detail": openDetail(id); break;
+    case "detail-photo": {
+      const main = $("#detail-photo-main");
+      if (main && el.dataset.url) {
+        main.src = el.dataset.url;
+        el.closest(".photo-thumbs")?.querySelectorAll("[data-action='detail-photo']").forEach((b) => b.setAttribute("aria-pressed", String(b === el)));
+      }
+      break;
+    }
     case "buy": confirmBuy(id); break;
     case "complete-order": completeOrder(id); break;
     case "toggle-values": toggleValues(); break;

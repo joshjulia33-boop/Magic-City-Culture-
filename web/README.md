@@ -59,6 +59,25 @@ host — no build step, no server of its own.
   Until deploy step 8 below is done, identification is simply
   unavailable (404 / 503 from the functions endpoint) and the status
   line says so — manual entry always works.
+- **Book photos & COA** — a book holds up to **5 photos**: the cover
+  (uploaded exactly as before, and still the photo the identification
+  flow works from) plus up to 4 extra pictures of the actual book —
+  back cover, corner/page close-ups, the certificate — added in the
+  add/edit form's **More photos of this book** section (take a photo or
+  pick photos, remove any of them; the form shows the running count,
+  "N of 5"). Extras live in the same `covers` storage bucket and are
+  referenced from `comics.extra_photos` (a JSON URL array). The book
+  detail view shows all the photos, cover first, as a tappable gallery;
+  marketplace listings show the extras too, so buyers can judge
+  condition. Gallery and shelf grid tiles still use the main cover
+  only. The form's signature section (Signed → Signed by → **COA**)
+  ends with a "COA — comes with a Certificate of Authenticity" tick,
+  stored as `comics.has_coa`; it shows as a gold **COA** badge on cards
+  (same style as SIGNED / REMARQUED) and a "Certificate of
+  Authenticity: Yes/No" line in the detail view. A photo of the
+  certificate itself is simply one of the book's extra photos — there
+  is no separate COA uploader. Needs deploy step 9 below; until then
+  books save normally and the extras/COA just don't persist yet.
 - **My Shelf** — the member's own books and their private numbers from
   `comic_values` (owner-only in the database): totals paid / current
   value, add & edit books (including cover photo upload to the `covers`
@@ -171,6 +190,17 @@ host — no build step, no server of its own.
    isn't a valid AI Studio key, the Generative Language API not being
    enabled for the key's project, or an exhausted free-tier quota.
    Re-paste this file's contents and redeploy after fixing the secret.
+9. Extra photos & COA (one-time): in the same SQL editor, run
+   `../supabase/add-extra-photos-coa.sql` (after `schema.sql` and
+   `add-signed-by.sql`). It adds `comics.extra_photos` (a JSON array
+   of up to 4 extra photo URLs — cover + 4 = the book's 5-photo cap)
+   and `comics.has_coa`, and projects both through the
+   gallery/listings views, enabling the **More photos of this book**
+   section in the add/edit form, the photo gallery in the book detail
+   view, the extra photos on marketplace listings, the gold **COA**
+   badge, and the "Certificate of Authenticity" line in the detail
+   view. Until it is run, books still save normally — the extra
+   photos and the COA tick just don't persist yet.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

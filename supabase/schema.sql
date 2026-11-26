@@ -156,6 +156,9 @@ create table if not exists public.comics (
   -- Name of the artist who signed the copy, free text typed into the
   -- "Signed by (artist name)" box under the Signed tick. NULL/'' = none.
   signed_by           text,
+  -- The "COA" tick in the form's signature section (Signed → Signed by
+  -- → COA): the copy comes with a Certificate of Authenticity.
+  has_coa             boolean not null default false,
   has_remark          boolean not null default false,
   -- Cover types / finishes the member tapped in the form, comma-joined
   -- ("Virgin, Foil") — a cover can be several at once. '' = none picked.
@@ -169,6 +172,12 @@ create table if not exists public.comics (
   -- Public URL of the collector's own cover photo (Supabase Storage,
   -- 'covers' bucket — see the optional storage section at the bottom).
   cover_url           text,
+  -- Up to FOUR extra photos of the actual book (back cover, corner or
+  -- page close-ups, the certificate photo) as a JSON array of Storage
+  -- URLs in the same 'covers' bucket. Cover + 4 extras = 5 photos max.
+  extra_photos        jsonb not null default '[]'::jsonb
+                      check (jsonb_typeof(extra_photos) = 'array'
+                             and jsonb_array_length(extra_photos) <= 4),
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
@@ -385,7 +394,9 @@ select cm.id,
          as current_value_cents,
        cm.has_remark,
        cm.cover_type,
-       cm.signed_by
+       cm.signed_by,
+       cm.has_coa,
+       cm.extra_photos
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -402,7 +413,9 @@ select cm.id as comic_id,
        cm.updated_at    as listed_at,
        cm.has_remark,
        cm.cover_type,
-       cm.signed_by
+       cm.signed_by,
+       cm.has_coa,
+       cm.extra_photos
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';
