@@ -173,6 +173,45 @@ nav tab, **TRADE**, carries member-to-member trade offers.
   form's existing optional-column drop, and the Trade tab shows a
   "being switched on" note while the offers tables don't exist.
 
+## Update — Friends (2026-11-26)
+
+Joshua's ask: "Add the ability for everyone to add others as friends."
+
+- **Schema** (`supabase/add-friends.sql`, folded into `schema.sql`): one
+  table, **`friendships`** (requester_id, addressee_id, status
+  pending → accepted, unique pair per direction, no self-friending).
+  Declining a request, cancelling your own, and removing a friend are
+  all the same delete, allowed for either member in the row. A
+  `guard_friendship_update` trigger makes accepting the only possible
+  update — status only, parties and date frozen.
+- **Privacy**: RLS shows a friendship ONLY to its two members. There is
+  deliberately no public friend list and no public friend count; the
+  site can only ever display your own friendships and the button state
+  between you and one other member (your own count shows on your own
+  card/profile/shelf). No values or private data involved.
+- **Front end**: friend controls on every collector card (Collectors
+  tab) and on profile pages — ADD FRIEND / REQUEST SENT + CANCEL /
+  RESPOND + ACCEPT + DECLINE / FRIENDS ✓ + REMOVE — and a **Friends**
+  panel on My Shelf (incoming requests, sent requests, friends list
+  with count and REMOVE), sitting between the payouts and invite
+  panels. No new tab.
+- **Graceful before the SQL runs**: exactly like the Trade tab before
+  its migration — if the friendships table doesn't exist yet, the
+  buttons stay hidden and the shelf panel says friends are being
+  switched on. Nothing else changes.
+- **Verified locally**: PGlite (real Postgres) — schema + migration
+  apply and re-run cleanly, **26/26 checks** (request → accept visible
+  to both parties, bystander sees 0, no sending as someone else, no
+  accepting your own request, no self-friend, duplicates rejected,
+  parties can't be rewritten, decline/cancel/remove deletes work for
+  both sides, anon locked out). Headless Chrome at 390px with
+  simulated data — **18/18 checks**: all four button states on cards,
+  profile-page respond state, the full shelf panel, the
+  pre-migration degradation, no overflow, no JS errors.
+- **Remaining step**: run `supabase/add-friends.sql` in the Supabase
+  SQL Editor (handled separately). Until then the live site behaves
+  exactly as before.
+
 ## Update — Book Search tab (2026-11-24)
 
 A **BOOK SEARCH** nav tab (`viewSearchHtml` / `runBookSearch` in

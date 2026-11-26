@@ -669,6 +669,97 @@ create policy "offer_items: sender adds own deal"
   ));
 
 -- ----------------------------------------------------------------------------
+-- friendships — friend requests and friendships between two members
+-- (see add-friends.sql). One row per pair and direction: requester
+-- sends, addressee answers; status moves pending → accepted. Decline,
+-- cancel, and remove-a-friend are all the same delete, by either
+-- member in the row. A friendship is visible ONLY to its two members
+-- — there is no public friend list or count.
+-- ----------------------------------------------------------------------------
+create table if not exists public.friendships (
+  id           uuid primary key default gen_random_uuid(),
+  requester_id uuid not null references public.collectors (id) on delete cascade,
+  addressee_id uuid not null references public.collectors (id) on delete cascade,
+  status       text not null default 'pending'
+               check (status in ('pending', 'accepted')),
+  created_at   timestamptz not null default now(),
+  unique (requester_id, addressee_id),
+  check (requester_id <> addressee_id)
+);
+
+create index if not exists friendships_requester_idx
+  on public.friendships (requester_id);
+create index if not exists friendships_addressee_idx
+  on public.friendships (addressee_id);
+
+alter table public.friendships enable row level security;
+
+drop policy if exists "friendships: parties read" on public.friendships;
+create policy "friendships: parties read"
+  on public.friendships for select
+  to authenticated
+  using (
+    requester_id = public.current_collector_id()
+    or addressee_id = public.current_collector_id()
+  );
+
+drop policy if exists "friendships: member requests" on public.friendships;
+create policy "friendships: member requests"
+  on public.friendships for insert
+  to authenticated
+  with check (
+    requester_id = public.current_collector_id()
+    and status = 'pending'
+  );
+
+-- Only the member the request was sent TO can update it, and only
+-- while it is still pending; the guard trigger narrows that to the
+-- accept itself.
+drop policy if exists "friendships: addressee accepts" on public.friendships;
+create policy "friendships: addressee accepts"
+  on public.friendships for update
+  to authenticated
+  using (
+    addressee_id = public.current_collector_id()
+    and status = 'pending'
+  )
+  with check (addressee_id = public.current_collector_id());
+
+drop policy if exists "friendships: parties delete" on public.friendships;
+create policy "friendships: parties delete"
+  on public.friendships for delete
+  to authenticated
+  using (
+    requester_id = public.current_collector_id()
+    or addressee_id = public.current_collector_id()
+  );
+
+-- Accepting is the only update there is: pending → accepted, with the
+-- two members and the created date frozen.
+create or replace function public.guard_friendship_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.status <> 'pending' then
+    raise exception 'This friendship has already been answered.';
+  end if;
+  if new.status <> 'accepted'
+     or new.requester_id is distinct from old.requester_id
+     or new.addressee_id is distinct from old.addressee_id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Accepting a friend request can only change its status.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists friendships_guard_update on public.friendships;
+create trigger friendships_guard_update
+  before update on public.friendships
+  for each row execute function public.guard_friendship_update();
+
+-- ----------------------------------------------------------------------------
 -- Public views (curated projections — the only public read paths that touch
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
@@ -753,6 +844,8 @@ grant select, update on public.orders to authenticated;
 
 grant select, insert, update, delete on public.offers to authenticated;
 grant select, insert on public.offer_items to authenticated;
+
+grant select, insert, update, delete on public.friendships to authenticated;
 
 grant select on public.public_profiles to anon, authenticated;
 grant select on public.gallery_comics to anon, authenticated;

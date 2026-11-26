@@ -149,6 +149,8 @@ let myValues = new Map();        // comic_id -> comic_values row
 let myOrders = [];               // enriched orders (buying + selling)
 let myOffers = [];               // enriched trade offers (sent + received)
 let offersReady = true;          // false until the offers tables exist (add-market-trades.sql)
+let myFriendships = [];          // friendship rows I'm in (sent + received)
+let friendsReady = true;         // false until the friendships table exists (add-friends.sql)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -310,6 +312,7 @@ async function resolveMyProfile() {
 }
 async function loadMine() {
   myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
+  myFriendships = []; friendsReady = true;
   if (!myProfile) return;
   const [c, o] = await Promise.all([
     sb.from("comics").select("*").eq("collector_id", myProfile.id).order("created_at", { ascending: false }).limit(1000),
@@ -336,6 +339,7 @@ async function loadMine() {
     myOrders = [];
   }
   await loadMyOffers();
+  await loadMyFriendships();
 }
 // Trade offers load separately and never break the rest of the shelf:
 // until supabase/add-market-trades.sql runs, the offers tables don't
@@ -374,6 +378,19 @@ async function loadMyOffers() {
     requested: (items || []).filter((i) => i.offer_id === o.id && i.side === "requested")
       .map((i) => ({ ...i, comic: cmap.get(i.comic_id) || null })),
   }));
+}
+// Friendships load separately and never break the rest of the shelf:
+// until supabase/add-friends.sql runs, the friendships table doesn't
+// exist and the friends buttons/sections simply stay out of the way.
+async function loadMyFriendships() {
+  myFriendships = [];
+  if (!myProfile) return;
+  const { data, error } = await sb.from("friendships")
+    .select("*")
+    .or(`requester_id.eq.${myProfile.id},addressee_id.eq.${myProfile.id}`)
+    .order("created_at", { ascending: false }).limit(500);
+  if (error) { friendsReady = false; return; }
+  myFriendships = data || [];
 }
 async function refreshAll() {
   await loadPublic();
@@ -854,6 +871,135 @@ async function respondOffer(offerId, status) {
   }
 }
 
+/* ---------------- friends ----------------
+   One friendships row per pair: requester sends, addressee answers.
+   Pending → accepted; decline / cancel / remove are all the row being
+   deleted by either member in it. Friendships are private between the
+   two members (database RLS), so the site only ever knows MY rows —
+   which is exactly what these buttons and the My Shelf panel need.
+   Until add-friends.sql runs, friendsReady is false and all of this
+   stays quietly out of the way. */
+function friendshipWith(otherId) {
+  if (!myProfile || !otherId || otherId === myProfile.id) return null;
+  return myFriendships.find((f) =>
+    (f.requester_id === myProfile.id && f.addressee_id === otherId)
+    || (f.addressee_id === myProfile.id && f.requester_id === otherId)) || null;
+}
+function myFriendCount() {
+  return myFriendships.filter((f) => f.status === "accepted").length;
+}
+// The friend control for one member, in whatever state we're in with
+// them. Rendered on their Collectors card and on their profile page.
+function friendButtonHtml(p) {
+  if (!friendsReady || (myProfile && p.id === myProfile.id)) return "";
+  const f = friendshipWith(p.id);
+  if (!f) {
+    return `<div class="friend-row"><button type="button" class="btn btn-blue btn-sm" data-action="friend-add" data-id="${p.id}">ADD FRIEND</button></div>`;
+  }
+  if (f.status === "accepted") {
+    return `<div class="friend-row"><span class="friend-state ok">FRIENDS ✓</span><button type="button" class="btn btn-ghost btn-sm" data-action="friend-remove" data-id="${f.id}">REMOVE</button></div>`;
+  }
+  if (f.requester_id === myProfile.id) {
+    return `<div class="friend-row"><span class="friend-state">REQUEST SENT</span><button type="button" class="btn btn-ghost btn-sm" data-action="friend-remove" data-id="${f.id}">CANCEL</button></div>`;
+  }
+  return `<div class="friend-row"><span class="friend-state hot">RESPOND</span><button type="button" class="btn btn-pink btn-sm" data-action="friend-accept" data-id="${f.id}">ACCEPT</button><button type="button" class="btn btn-ghost btn-sm" data-action="friend-remove" data-id="${f.id}">DECLINE</button></div>`;
+}
+function friendRowHtml(f, otherId, actionsHtml) {
+  const o = profileById(otherId);
+  if (!o) return "";
+  return `<div class="friend-item">
+    ${avatarHtml(o)}
+    <span class="fr-main">
+      <button type="button" class="owner-link" data-action="goto-profile" data-id="${o.id}">${esc(o.display_name)}</button>
+      <span class="fr-handle">@${esc(o.handle)}</span>
+    </span>
+    <span class="row-actions" style="margin-top:0">${actionsHtml}</span>
+  </div>`;
+}
+function friendsPanelHtml(p) {
+  if (!friendsReady) {
+    return `<div class="values-panel">
+      <p class="vp-tag">FRIENDS</p>
+      <p class="vp-note" style="margin-top:.4rem">Friends are being switched on — check back shortly.</p>
+    </div>`;
+  }
+  const incoming = myFriendships.filter((f) => f.status === "pending" && f.addressee_id === p.id);
+  const outgoing = myFriendships.filter((f) => f.status === "pending" && f.requester_id === p.id);
+  const friends = myFriendships.filter((f) => f.status === "accepted");
+  const otherIdOf = (f) => (f.requester_id === p.id ? f.addressee_id : f.requester_id);
+  return `<div class="values-panel">
+    <p class="vp-tag">FRIENDS — ${friends.length} FRIEND${friends.length === 1 ? "" : "S"}</p>
+    <p class="vp-note" style="margin-top:.4rem">Add fellow collectors as friends from the Collectors tab or their profile page. Only you and each friend can see that you're friends — there's no public friend list.</p>
+    ${incoming.length ? `<p class="label" style="margin-top:.9rem">Requests for you</p>
+      <div class="friend-list">${incoming.map((f) => friendRowHtml(f, otherIdOf(f),
+        `<button type="button" class="btn btn-pink btn-sm" data-action="friend-accept" data-id="${f.id}">ACCEPT</button><button type="button" class="btn btn-ghost btn-sm" data-action="friend-remove" data-id="${f.id}">DECLINE</button>`)).join("")}</div>` : ""}
+    ${outgoing.length ? `<p class="label" style="margin-top:.9rem">Requests you sent</p>
+      <div class="friend-list">${outgoing.map((f) => friendRowHtml(f, otherIdOf(f),
+        `<span class="friend-state">REQUEST SENT</span><button type="button" class="btn btn-ghost btn-sm" data-action="friend-remove" data-id="${f.id}">CANCEL</button>`)).join("")}</div>` : ""}
+    ${friends.length ? `<p class="label" style="margin-top:.9rem">Your friends</p>
+      <div class="friend-list">${friends.map((f) => friendRowHtml(f, otherIdOf(f),
+        `<span class="friend-state ok">FRIENDS ✓</span><button type="button" class="btn btn-ghost btn-sm" data-action="friend-remove" data-id="${f.id}">REMOVE</button>`)).join("")}</div>`
+      : `<p class="vp-note" style="margin-top:.6rem">No friends yet — tap ADD FRIEND on any collector to send your first request.</p>`}
+  </div>`;
+}
+async function sendFriendRequest(collectorId) {
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  if (busy || collectorId === myProfile.id || friendshipWith(collectorId)) return;
+  busy = true;
+  try {
+    const { error } = await sb.from("friendships").insert({
+      requester_id: myProfile.id,
+      addressee_id: collectorId,
+    });
+    if (error) throw error;
+    const other = profileById(collectorId);
+    setNotice(`Friend request sent to ${other ? other.display_name : "that collector"} — they'll see it on their shelf.`);
+    await refreshAll();
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "The request didn't go through — try again.");
+  } finally {
+    busy = false;
+  }
+}
+async function acceptFriendship(friendshipId) {
+  if (busy || !myProfile) return;
+  busy = true;
+  try {
+    const { error } = await sb.from("friendships").update({ status: "accepted" }).eq("id", friendshipId);
+    if (error) throw error;
+    setNotice("You're friends now!");
+    await refreshAll();
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "Couldn't accept that request.");
+  } finally {
+    busy = false;
+  }
+}
+async function removeFriendship(friendshipId) {
+  if (busy || !myProfile) return;
+  const f = myFriendships.find((x) => x.id === friendshipId);
+  if (!f) return;
+  const other = profileById(f.requester_id === myProfile.id ? f.addressee_id : f.requester_id);
+  const name = other ? other.display_name : "that collector";
+  busy = true;
+  try {
+    const { error } = await sb.from("friendships").delete().eq("id", friendshipId);
+    if (error) throw error;
+    setNotice(f.status === "accepted"
+      ? `${name} removed from your friends.`
+      : f.requester_id === myProfile.id ? `Friend request to ${name} cancelled.` : `Friend request from ${name} declined.`);
+    await refreshAll();
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "Couldn't update that friendship.");
+  } finally {
+    busy = false;
+  }
+}
+
 /* ---------------- collectors & public profile ---------------- */
 function viewCollectorsHtml() {
   const counts = new Map();
@@ -868,15 +1014,20 @@ function viewCollectorsHtml() {
     <div class="collector-list">
       ${profiles.map((p) => {
         const ct = counts.get(p.id) || { books: 0, signed: 0 };
-        return `<button type="button" class="collector-card" data-action="goto-profile" data-id="${p.id}">
-          ${avatarHtml(p, "lg")}
-          <span>
-            <span class="cname">${esc(p.display_name)} ${p.is_founder ? '<span class="founder-tag">FOUNDER</span>' : ""}</span>
-            <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
-            ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
-            <span class="cmeta" style="display:block">${ct.books} books • ${ct.signed} signed • Joined ${esc(joinedLabel(p.created_at))}</span>
-          </span>
-        </button>`;
+        const isMe = !!myProfile && p.id === myProfile.id;
+        const friendBit = isMe && friendsReady ? ` • ${myFriendCount()} friend${myFriendCount() === 1 ? "" : "s"}` : "";
+        return `<article class="collector-card">
+          <button type="button" class="collector-main" data-action="goto-profile" data-id="${p.id}" aria-label="View ${esc(p.display_name)}'s shelf">
+            ${avatarHtml(p, "lg")}
+            <span>
+              <span class="cname">${esc(p.display_name)} ${p.is_founder ? '<span class="founder-tag">FOUNDER</span>' : ""}</span>
+              <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
+              ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
+              <span class="cmeta" style="display:block">${ct.books} books • ${ct.signed} signed${friendBit} • Joined ${esc(joinedLabel(p.created_at))}</span>
+            </span>
+          </button>
+          ${friendButtonHtml(p)}
+        </article>`;
       }).join("")}
     </div>
   </section>`;
@@ -903,8 +1054,10 @@ function viewProfileHtml(collectorId) {
     </div>
     <div class="stat-chips" style="justify-content:flex-start">
       <span>${books.length} books</span><span>${signed} signed</span><span>${remarqued} remarqued</span>
+      ${myProfile && p.id === myProfile.id && friendsReady ? `<span>${myFriendCount()} friends</span>` : ""}
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
+    ${friendButtonHtml(p)}
     ${books.length ? `<div class="grid">${books.map(galleryCardHtml).join("")}</div>` : `<p class="empty">No books on this shelf yet.</p>`}
   </section>`;
 }
@@ -1049,6 +1202,7 @@ function viewShelfHtml() {
       </button>
     </div>
     ${payoutsPanelHtml(p)}
+    ${friendsPanelHtml(p)}
     ${invitePanelHtml(p)}
     ${myComics.length ? `
     <div class="toolbar">
@@ -2208,6 +2362,9 @@ document.addEventListener("click", (e) => {
     case "offer-withdraw": respondOffer(id, "withdrawn"); break;
     case "offer-counter": startCounter(id); break;
     case "cancel-counter": resetTradeBuilder(); render(); break;
+    case "friend-add": sendFriendRequest(id); break;
+    case "friend-accept": acceptFriendship(id); break;
+    case "friend-remove": removeFriendship(id); break;
     case "toggle-values": toggleValues(); break;
     case "copy-ref-link": copyReferralLink(); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;

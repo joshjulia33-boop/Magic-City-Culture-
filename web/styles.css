@@ -295,14 +295,37 @@ h2.view-title { font-family: var(--font-display); font-size: 24px; margin: 0; }
 .collector-list { display: grid; gap: 0.75rem; margin-top: 1.25rem; }
 @media (min-width: 640px) { .collector-list { grid-template-columns: repeat(2, 1fr); } }
 .collector-card {
-  display: flex; gap: 0.75rem; align-items: flex-start; text-align: left; width: 100%;
+  display: flex; flex-direction: column; width: 100%;
   border-radius: var(--radius); border: 2px solid #000; background: var(--surface);
   box-shadow: 0 6px 0 rgba(0,0,0,0.45); padding: 1rem; color: var(--text);
+}
+.collector-main {
+  display: flex; gap: 0.75rem; align-items: flex-start; text-align: left; width: 100%;
+  background: none; border: none; padding: 0; color: var(--text);
 }
 .collector-card .cname { font-family: var(--font-display); font-size: 17px; margin: 0; }
 .collector-card .chandle { font-size: 13px; font-weight: 700; color: var(--blue); margin: 0.15rem 0 0; }
 .collector-card .cbio { font-size: 13px; color: #c9c5ef; margin: 0.4rem 0 0; }
 .collector-card .cmeta { font-size: 12px; font-weight: 700; color: var(--dim); margin: 0.4rem 0 0; }
+
+/* friends: state row on collector cards & profiles, shelf panel list */
+.friend-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.75rem; }
+.friend-state {
+  font-size: 11px; font-weight: 800; letter-spacing: 0.08em;
+  padding: 0.35rem 0.7rem; border-radius: 9999px;
+  background: var(--surface-alt); color: var(--dim); border: 1px solid var(--border);
+}
+.friend-state.ok { background: #00e5a0; color: #000; border-color: #000; }
+.friend-state.hot { background: var(--orange); color: #000; border-color: #000; }
+.friend-list { display: grid; gap: 0.5rem; margin-top: 0.5rem; }
+.friend-item {
+  display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.6rem; background: var(--bg);
+}
+.friend-item .fr-main { flex: 1; min-width: 8rem; display: flex; flex-direction: column; align-items: flex-start; }
+.friend-item .owner-link { font-size: 14px; font-weight: 700; color: var(--blue);
+  background: none; border: none; padding: 0; text-decoration: underline dotted; text-underline-offset: 2px; }
+.friend-item .fr-handle { font-size: 12px; font-weight: 700; color: var(--dim); }
 
 /* orders */
 .order-list { display: grid; gap: 0.75rem; margin-top: 1rem; }
