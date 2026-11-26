@@ -333,6 +333,12 @@ function renderHeader() {
   } else {
     slot.innerHTML = `<button type="button" class="btn btn-blue" data-action="open-auth" data-mode="join">JOIN</button>`;
   }
+  // The actions block may have just changed size — most importantly the
+  // signed-in chip appearing after sign-in — so re-measure the header
+  // labels against the space actually available now. Without this, the
+  // brand title kept the size fitted for an empty actions block and
+  // slid underneath the chip on phones.
+  if (window.__mccFitBranding) window.__mccFitBranding();
 }
 
 /* ---------------- gallery ---------------- */
@@ -1643,8 +1649,11 @@ document.addEventListener("error", (e) => {
     fitText($(".masthead"), 58, 16);
     document.querySelectorAll("#main-nav .nav-btn").forEach((b) => fitText(b, 13, 7.5));
     fitText($(".brand .brand-name"), 11, 6);
-    fitText($(".brand .brand-sub"), 17, 9);
+    fitText($(".brand .brand-sub"), 17, 8);
   }
+  // renderHeader() calls this after every render, so the labels are
+  // re-fitted whenever the header actions change (sign-in, sign-out).
+  window.__mccFitBranding = fitBranding;
   fitBranding();
   if (document.fonts?.ready) document.fonts.ready.then(fitBranding);
   let resizeTimer = null;
