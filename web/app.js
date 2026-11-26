@@ -26,9 +26,10 @@ function coverTypesOf(c) {
 // Payment methods a seller accepts on a listing, picked in the form and
 // stored in comics.payment_methods as one comma-joined string ("Cash,
 // Zelle") — the same shape as cover_type. Public by design, like the
-// asking price: they are part of the offer to everyone. They are NOT
-// payment accounts — the site takes no payments; members settle
-// between themselves. "Other" carries its detail in payment_other.
+// asking price: they are part of the offer to everyone. They are the
+// OFF-SITE ways a buyer can pay the seller directly; card payment itself
+// runs through Stripe Connect once the seller has set up payouts (see
+// the Stripe section below). "Other" carries its detail in payment_other.
 const PAYMENT_METHODS = ["Cash", "Cash App", "Venmo", "Zelle", "PayPal", "Other"];
 function paymentMethodsOf(c) {
   return String(c?.payment_methods || "").split(",").map((t) => t.trim()).filter(Boolean);
@@ -148,6 +149,9 @@ let myValues = new Map();        // comic_id -> comic_values row
 let myOrders = [];               // enriched orders (buying + selling)
 let myOffers = [];               // enriched trade offers (sent + received)
 let offersReady = true;          // false until the offers tables exist (add-market-trades.sql)
+let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
+let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
+let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
 let tradeTargetId = "";          // builder: the listed book I want (its comic id)
 let tradeGive = new Set();       // builder: my comic ids I put into the deal
 let tradeWant = new Set();       // builder: their comic ids I ask for (target included)
@@ -360,6 +364,10 @@ async function loadMyOffers() {
   }
   myOffers = raw.map((o) => ({
     ...o,
+    // cash_status arrives with add-stripe-payments.sql; until then (and
+    // for rows written before it) derive the same meaning here: an
+    // accepted deal with cash on it has that cash outstanding.
+    cash_status: o.cash_status || (o.cash_cents > 0 && o.status === "accepted" ? "pending" : "not_required"),
     target: cmap.get(o.target_comic_id) || null,
     offered: (items || []).filter((i) => i.offer_id === o.id && i.side === "offered")
       .map((i) => ({ ...i, comic: cmap.get(i.comic_id) || null })),
@@ -491,14 +499,31 @@ function orderCardHtml(o, mine) {
   const buying = o.buyer_id === myProfile?.id;
   const other = profileById(buying ? o.seller_id : o.buyer_id);
   const title = o.comic ? `${o.comic.title} ${o.comic.issue}` : "A book from the shelf";
+  const paidByCard = !!o.stripe_checkout_session_id;
+  let action = "";
+  if (!buying && o.status === "placed") {
+    action = `<button type="button" class="btn btn-pink btn-sm" data-action="complete-order" data-id="${o.id}">MARK COMPLETE — PAID &amp; HANDED OFF</button>`;
+  } else if (!buying && o.status === "paid") {
+    action = `<button type="button" class="btn btn-pink btn-sm" data-action="ship-order" data-id="${o.id}">MARK SHIPPED / HANDED OFF</button>`;
+  } else if (buying && o.status === "shipped") {
+    action = `<button type="button" class="btn btn-pink btn-sm" data-action="receive-order" data-id="${o.id}">MARK RECEIVED</button>`;
+  } else if (!buying && o.status === "received") {
+    action = `<button type="button" class="btn btn-pink btn-sm" data-action="complete-order" data-id="${o.id}">MARK COMPLETE</button>`;
+  } else if (buying && o.status === "paid") {
+    action = `<span class="o-meta">Paid — waiting for ${esc(other ? other.display_name : "the seller")} to ship or hand off.</span>`;
+  } else if (buying && o.status === "placed") {
+    action = `<span class="o-meta">Order placed — arrange payment with ${esc(other ? other.display_name : "the seller")}.</span>`;
+  }
   return `<div class="order-card">
     <div class="o-main">
       <p class="o-title">${esc(title)}</p>
       <p class="o-meta">${buying ? "Seller" : "Buyer"}: ${esc(other ? other.display_name : "—")} • ${esc(money(o.price_cents))} • Ordered ${esc(orderDateLabel(o.created_at))}
+      ${paidByCard ? ` • Paid by card` : ""}
+      ${!buying && o.platform_fee_cents > 0 ? ` • Site fee (5%): ${esc(money(o.platform_fee_cents))}` : ""}
       ${o.status === "completed" && o.completed_at ? ` • Completed ${esc(orderDateLabel(o.completed_at))}` : ""}</p>
     </div>
     <span class="order-status ${o.status}">${o.status.toUpperCase()}</span>
-    ${!buying && o.status === "placed" ? `<button type="button" class="btn btn-pink btn-sm" data-action="complete-order" data-id="${o.id}">MARK COMPLETE — PAID &amp; HANDED OFF</button>` : ""}
+    ${action}
   </div>`;
 }
 function listingPhotoStripHtml(l) {
@@ -544,7 +569,7 @@ function viewMarketHtml() {
   }
   return `<section class="block">
     <h2 class="view-title neon-text">THE MARKET</h2>
-    <p class="view-sub"><strong>BUY · SELL · TRADE.</strong> Books members have listed for sale, at the seller's asking price — list your own from Add a Book or Edit a Book, with the payment methods you accept. Books marked OPEN TO TRADES can also be had for a bundle of your books plus cash: propose the deal in the Trade tab. Buying places the order here and marks the book sold — you and the seller arrange payment and handoff between yourselves.</p>
+    <p class="view-sub"><strong>BUY · SELL · TRADE.</strong> Books members have listed for sale, at the seller's asking price — list your own from Add a Book or Edit a Book, with the payment methods you accept. Books marked OPEN TO TRADES can also be had for a bundle of your books plus cash: propose the deal in the Trade tab. When a seller has set up payouts, BUY IT takes you to Stripe's secure card checkout and the book is marked sold the moment the payment lands; otherwise you and the seller arrange payment and handoff between yourselves.</p>
     ${listings.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Nothing listed right now. Put one of your own books up from your shelf — tick "List this book in the Market" in Add a Book or Edit a Book and name your price.</p>`}
     ${ordersHtml}
   </section>`;
@@ -641,7 +666,7 @@ function tradeBuilderHtml() {
     <div class="row-actions">
       <button type="button" class="btn btn-pink" data-action="send-offer">${counterOfId ? "SEND COUNTER-OFFER" : "SEND OFFER"}</button>
     </div>
-    <p class="form-note" style="margin-top:.6rem">Sending proposes the deal — nothing is sold or paid here. If they accept, you settle between yourselves.</p>
+    <p class="form-note" style="margin-top:.6rem">Sending proposes the deal — nothing is sold yet. If they accept, any cash you added can be paid by card from this tab.</p>
   </div>`;
   return h;
 }
@@ -664,7 +689,21 @@ function offerCardHtml(o) {
   if (o.status === "accepted") {
     const owner = o.target ? profileById(o.target.collector_id) : null;
     const label = o.target ? paymentLabel(o.target) : "";
-    settle = `<p class="of-meta" style="margin-top:.6rem">Deal on! Settle between yourselves${owner ? ` — ${esc(owner.display_name)} accepts: ${label ? esc(label) : "arrange it with them"}` : ""}. No payment goes through the site.</p>`;
+    settle = `<p class="of-meta" style="margin-top:.6rem">Deal on! Settle the books between yourselves${owner ? ` — ${esc(owner.display_name)} accepts: ${label ? esc(label) : "arrange it with them"}` : ""}.</p>`;
+    if (o.cash_cents > 0) {
+      const cashState = o.cash_status || "pending";
+      const otherPayouts = other?.payouts_enabled === true;
+      if (cashState === "paid") {
+        settle += `<p class="of-meta" style="margin-top:.35rem">Cash top-up of ${esc(money(o.cash_cents))}: <strong>paid by card ✓</strong></p>`;
+      } else if (sentByMe) {
+        settle += `<p class="of-meta" style="margin-top:.35rem">Cash top-up you owe: <strong>${esc(money(o.cash_cents))}</strong>${paymentsOn && !otherPayouts ? ` — ${esc(other ? other.display_name : "the other member")} hasn't set up card payouts yet, so settle this cash with them directly.` : ""}</p>`;
+        if (paymentsOn && otherPayouts) {
+          settle += `<div class="row-actions"><button type="button" class="btn btn-pink btn-sm" data-action="pay-trade-cash" data-id="${o.id}">PAY ${esc(money(o.cash_cents))} BY CARD</button></div>`;
+        }
+      } else {
+        settle += `<p class="of-meta" style="margin-top:.35rem">Cash top-up owed to you: <strong>${esc(money(o.cash_cents))}</strong> — ${paymentsOn && myProfile?.stripe_payouts_enabled ? `${esc(other ? other.display_name : "They")} can pay it by card right here.` : `settle it between yourselves.`}</p>`;
+      }
+    }
   }
   return `<div class="offer-card">
     <div class="of-head">
@@ -710,7 +749,7 @@ function viewTradeHtml() {
   const sent = myOffers.filter((o) => o.from_collector_id === myProfile.id);
   return `<section class="block">
     <h2 class="view-title neon-text">TRADE</h2>
-    <p class="view-sub"><strong>BUY · SELL · TRADE.</strong> Bundle your books, add cash to up a deal, and trade with other collectors. Both sides can stack books — and a counter-offer lets the other member stack theirs. No payments happen here; when a deal is accepted you settle between yourselves.</p>
+    <p class="view-sub"><strong>BUY · SELL · TRADE.</strong> Bundle your books, add cash to up a deal, and trade with other collectors. Both sides can stack books — and a counter-offer lets the other member stack theirs. The books change hands between yourselves; when a deal with cash on it is accepted, that cash can be paid by card right here once the member receiving it has payouts set up.</p>
     ${offersReady ? tradeBuilderHtml() : `<p class="empty">Trading is being switched on — check back shortly.</p>`}
     <h3 class="sub-title">OFFERS FOR YOU</h3>
     ${received.length ? received.map(offerCardHtml).join("") : `<p class="empty" style="padding:1.5rem 0">No offers yet. List a book in the Market with "Open to trades" ticked and members can propose deals for it.</p>`}
@@ -803,7 +842,7 @@ async function respondOffer(offerId, status) {
     const { error } = await sb.from("offers").update({ status }).eq("id", offerId);
     if (error) throw error;
     setNotice(status === "accepted"
-      ? "Deal accepted! Settle payment and handoff between yourselves — the Trade tab shows the payment methods on the book."
+      ? "Deal accepted! The books settle between yourselves — and if the deal has cash on it, it can be paid by card from the Trade tab."
       : status === "declined" ? "Offer declined."
       : "Offer withdrawn.");
     await refreshAll();
@@ -915,6 +954,29 @@ function invitePanelHtml(p) {
     <button type="button" class="btn btn-blue" data-action="copy-ref-claude">COPY THE MESSAGE</button>
   </div>`;
 }
+function payoutsPanelHtml(p) {
+  const ready = p.stripe_payouts_enabled === true;
+  const started = !!p.stripe_account_id;
+  let body = "";
+  if (ready) {
+    body = `<p class="vp-note" style="margin-top:.4rem">✓ <strong>Payouts ready.</strong> Buyers can pay you by card at checkout; the money lands in your bank through your own Stripe account. Stripe's card fee and the site's 5% come out of each sale — nothing is charged to you up front.</p>
+      <div class="row-actions"><a class="btn btn-blue" href="https://dashboard.stripe.com/" target="_blank" rel="noopener">OPEN MY STRIPE DASHBOARD</a></div>`;
+  } else if (started) {
+    body = `<p class="vp-note" style="margin-top:.4rem">Your Stripe setup isn't finished, so buyers can't pay you by card yet. Finish every step on Stripe's pages — it only takes a few minutes — then check the status.</p>
+      <div class="row-actions">
+        <button type="button" class="btn btn-pink" data-action="stripe-onboard">FINISH SETUP</button>
+        <button type="button" class="btn btn-ghost" data-action="stripe-status">CHECK STATUS</button>
+      </div>`;
+  } else {
+    body = `<p class="vp-note" style="margin-top:.4rem">Set up payouts once, and buyers can pay you by card right from your listings — the money goes to your own Stripe account and out to your bank. Stripe's card fee and the site's 5% come out of each sale. Until then, buyers arrange payment with you directly.</p>
+      <div class="row-actions"><button type="button" class="btn btn-pink" data-action="stripe-onboard">SET UP PAYOUTS WITH STRIPE</button></div>
+      ${paymentsOn ? "" : `<p class="vp-note">Card payouts are being switched on — the setup opens as soon as they're live.</p>`}`;
+  }
+  return `<div class="values-panel">
+    <p class="vp-tag">SELLING PAYOUTS — STRIPE</p>
+    ${body}
+  </div>`;
+}
 function viewShelfHtml() {
   if (!user) {
     return `<section class="block"><div class="center-note">
@@ -986,6 +1048,7 @@ function viewShelfHtml() {
         ${p.show_values_publicly ? "MAKE MY VALUES PRIVATE AGAIN" : "MAKE MY VALUES PUBLIC"}
       </button>
     </div>
+    ${payoutsPanelHtml(p)}
     ${invitePanelHtml(p)}
     ${myComics.length ? `
     <div class="toolbar">
@@ -1360,10 +1423,11 @@ function comicFormHtml(c, prefill = null) {
           <input class="input" id="cf-asking" inputmode="decimal" value="${esc(centsToDollars(c?.asking_price_cents))}" placeholder="25" /></div>
         <div class="field"><span class="label">Payment methods I accept</span>
           <div class="pay-checks" id="cf-pay-checks">${PAYMENT_METHODS.map((m) => `<label class="check"><input type="checkbox" name="cf-pay" value="${esc(m)}" ${paymentMethodsOf(c).includes(m) ? "checked" : ""} /> ${esc(m)}</label>`).join("")}</div>
-          <p class="form-note" style="margin:.35rem 0 0">Shown on your listing so a buyer knows how they can pay you. The site takes no payments — you settle between yourselves.</p></div>
+          <p class="form-note" style="margin:.35rem 0 0">Shown on your listing so a buyer knows how they can pay you directly. Buyers can also pay by card at checkout once your payouts are set up (below).</p></div>
         <div class="field" id="cf-pay-other-wrap" ${paymentMethodsOf(c).includes("Other") ? "" : 'style="display:none"'}><label class="label" for="cf-pay-other">Other — how?</label>
           <input class="input" id="cf-pay-other" maxlength="120" value="${esc(c?.payment_other || "")}" placeholder="e.g. Apple Pay, bank transfer" /></div>
         <div class="field"><label class="check"><input type="checkbox" id="cf-trades" ${c?.open_to_trades ? "checked" : ""} /> Open to trades — members can offer me their books (plus cash) for this one</label></div>
+        ${myProfile && !myProfile.stripe_payouts_enabled ? `<p class="form-note" style="margin:.35rem 0 0">Want buyers to pay by card? Set up payouts with Stripe — it's one-time, on My Shelf under "Selling payouts". Until then, buyers arrange payment with you directly.</p>` : ""}
       </div>
     </section>
     <div class="field"><label class="label" for="cf-status">Status</label>
@@ -1837,18 +1901,165 @@ async function identifyCoverPhoto(file) {
   }
 }
 
+/* ---------------- Stripe card payments ----------------
+   Sellers connect a Stripe (Connect, standard) account from My Shelf;
+   buyers pay by card through Stripe-hosted Checkout. The money moves
+   inside Stripe — seller's account, minus Stripe's fee and the site's
+   5% — and the order / paid state is written by the stripe-webhook
+   function when Stripe confirms. This page only ever holds the
+   publishable key (from the stripe-config function); the secret key
+   exists solely as a function secret. Until the functions and keys
+   exist, paymentsOn stays false and the site keeps its original
+   behaviour: orders are placed here and members settle between
+   themselves. */
+async function callFunction(name, body) {
+  const cfg = window.MCC_CONFIG || {};
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_PUBLISHABLE_KEY) return null;
+  try {
+    let token = cfg.SUPABASE_PUBLISHABLE_KEY;
+    try {
+      const { data } = await sb.auth.getSession();
+      if (data?.session?.access_token) token = data.session.access_token;
+    } catch { /* the publishable key alone is a valid gateway token */ }
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 30000);
+    let res;
+    try {
+      res = await fetch(`${cfg.SUPABASE_URL}/functions/v1/${name}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: cfg.SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(body || {}),
+        signal: ctl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) {
+      // A JSON error body (e.g. "seller hasn't set up payouts") is more
+      // useful than the status alone — surface it when there is one.
+      const out = await res.json().catch(() => null);
+      return out && typeof out === "object" ? out : null;
+    }
+    const out = await res.json().catch(() => null);
+    return out && typeof out === "object" ? out : null;
+  } catch {
+    return null;
+  }
+}
+async function loadStripeConfig() {
+  const out = await callFunction("stripe-config", {});
+  if (out && out.paymentsEnabled) {
+    paymentsOn = true;
+    stripePublishableKey = out.publishableKey || "";
+  } else {
+    paymentsOn = false;
+    stripePublishableKey = "";
+  }
+  return paymentsOn;
+}
+async function stripeOnboard() {
+  if (busy) return;
+  if (!paymentsOn) {
+    setNotice("Card payouts are being switched on — you can still list books; buyers will arrange payment with you directly until then.");
+    return;
+  }
+  busy = true;
+  try {
+    const out = await callFunction("stripe-connect", { action: "onboard" });
+    if (out?.url) { window.location.href = out.url; return; }
+    setNotice(out?.error || "Payout setup couldn't start just now — try again in a bit.");
+  } finally {
+    busy = false;
+  }
+}
+async function stripeStatus(manual = false) {
+  const out = await callFunction("stripe-connect", { action: "status" });
+  if (out?.connected) {
+    await refreshAll();
+    render();
+    if (manual) {
+      setNotice(out.payoutsEnabled
+        ? "Payouts are ready — buyers can pay you by card, and sales land in your bank through Stripe."
+        : "Stripe says the setup isn't finished yet — tap FINISH SETUP and complete every step on Stripe's pages.");
+    }
+    return out;
+  }
+  if (manual) setNotice("Couldn't check with Stripe just now — try again in a bit.");
+  return null;
+}
+async function maybeSyncPayouts() {
+  if (payoutSyncTried || !paymentsOn || !myProfile?.stripe_account_id || myProfile.stripe_payouts_enabled) return;
+  payoutSyncTried = true;
+  const out = await callFunction("stripe-connect", { action: "status" });
+  if (out?.connected) { await refreshAll(); render(); }
+}
+async function startStripeBuy(comicId, errEl) {
+  const out = await callFunction("stripe-checkout", { action: "buy", comicId });
+  if (out?.url) { window.location.href = out.url; return true; }
+  const msg = out?.error || "Card checkout couldn't start — try again in a bit.";
+  if (errEl) errEl.textContent = msg; else setNotice(msg);
+  return false;
+}
+async function payTradeCash(offerId) {
+  if (busy) return;
+  busy = true;
+  try {
+    const out = await callFunction("stripe-checkout", { action: "trade-cash", offerId });
+    if (out?.url) { window.location.href = out.url; return; }
+    setNotice(out?.error || "That payment couldn't start — try again in a bit.");
+  } finally {
+    busy = false;
+  }
+}
+
 /* ---------------- market actions ---------------- */
 function confirmBuy(comicId) {
   const l = listings.find((x) => x.comic_id === comicId);
   const g = !l ? gallery.find((x) => x.id === comicId && x.status === "for_sale") : null;
-  const listing = l || (g ? {
+  const listing = l ? { ...l, sellerPayouts: l.seller_payouts_enabled === true } : (g ? {
     comic_id: g.id, title: g.title, issue: g.issue, asking_price_cents: g.asking_price_cents,
     seller_id: g.collector_id, seller_name: g.collector_name,
+    sellerPayouts: g.collector_payouts_enabled === true,
   } : null);
   if (!listing) return;
   if (!user) { openAuth("join"); return; }
   if (!myProfile) { openProfileForm(); return; }
   if (listing.seller_id === myProfile.id) { setNotice("That's your own listing."); return; }
+  if (paymentsOn && !listing.sellerPayouts) {
+    openModal(`
+      ${modalHead("CARD PAYMENTS NOT READY")}
+      <p style="font-size:15px"><strong>${esc(listing.title)} ${esc(listing.issue)}</strong> — ${esc(money(listing.asking_price_cents))} from ${esc(listing.seller_name)}.</p>
+      <p class="form-note">${esc(listing.seller_name)} hasn't set up card payouts yet, so this book can't be checked out by card. You can still arrange payment and handoff with them directly — their accepted payment methods are on the listing.</p>
+      <div class="row-actions">
+        <button type="button" class="btn btn-ghost" data-action="close-modal">OK</button>
+      </div>`);
+    return;
+  }
+  if (paymentsOn && listing.sellerPayouts) {
+    openModal(`
+      ${modalHead("BUY THIS BOOK?")}
+      <p style="font-size:15px"><strong>${esc(listing.title)} ${esc(listing.issue)}</strong> from ${esc(listing.seller_name)} — <strong style="color:var(--accent)">${esc(money(listing.asking_price_cents))}</strong>.</p>
+      <p class="form-note">You'll pay by card on Stripe's secure checkout. The book is marked sold and your order appears here the moment the payment lands — then you and the seller arrange handoff or shipping.</p>
+      <p class="form-error" id="buy-error"></p>
+      <div class="row-actions">
+        <button type="button" class="btn btn-pink" id="buy-confirm">PAY ${esc(money(listing.asking_price_cents))} BY CARD</button>
+        <button type="button" class="btn btn-ghost" data-action="close-modal">NOT YET</button>
+      </div>`);
+    $("#buy-confirm").addEventListener("click", async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        await startStripeBuy(listing.comic_id, $("#buy-error"));
+      } finally {
+        busy = false;
+      }
+    });
+    return;
+  }
   openModal(`
     ${modalHead("PLACE THIS ORDER?")}
     <p style="font-size:15px"><strong>${esc(listing.title)} ${esc(listing.issue)}</strong> from ${esc(listing.seller_name)} — <strong style="color:var(--accent)">${esc(money(listing.asking_price_cents))}</strong>.</p>
@@ -1880,15 +2091,17 @@ function confirmBuy(comicId) {
     }
   });
 }
-async function completeOrder(orderId) {
+async function advanceOrder(orderId, status) {
   if (busy) return;
   busy = true;
   try {
-    const { error } = await sb.from("orders")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
-      .eq("id", orderId);
+    const patch = { status };
+    if (status === "completed") patch.completed_at = new Date().toISOString();
+    const { error } = await sb.from("orders").update(patch).eq("id", orderId);
     if (error) throw error;
-    setNotice("Order marked complete. Nice doing business in the city.");
+    setNotice(status === "shipped" ? "Marked shipped — the buyer can confirm when it arrives."
+      : status === "received" ? "Marked received — thanks! The seller can close the order out."
+      : "Order marked complete. Nice doing business in the city.");
     await refreshAll();
     render();
   } catch (ex) {
@@ -1896,6 +2109,9 @@ async function completeOrder(orderId) {
   } finally {
     busy = false;
   }
+}
+async function completeOrder(orderId) {
+  return advanceOrder(orderId, "completed");
 }
 async function toggleValues() {
   if (!myProfile || busy) return;
@@ -1979,6 +2195,11 @@ document.addEventListener("click", (e) => {
     }
     case "buy": confirmBuy(id); break;
     case "complete-order": completeOrder(id); break;
+    case "ship-order": advanceOrder(id, "shipped"); break;
+    case "receive-order": advanceOrder(id, "received"); break;
+    case "stripe-onboard": stripeOnboard(); break;
+    case "stripe-status": stripeStatus(true); break;
+    case "pay-trade-cash": payTradeCash(id); break;
     case "propose-trade": proposeTrade(id); break;
     case "trade-target": selectTradeTarget(id); break;
     case "send-offer": sendOffer(); break;
@@ -2054,6 +2275,40 @@ document.addEventListener("error", (e) => {
   });
 })();
 
+/* ---------------- Stripe return landings ----------------
+   Stripe sends members back to the site root with a marker in the URL:
+   ?payment=success&kind=buy|trade after a checkout, ?payment=cancelled
+   when they back out, ?stripe=return / ?stripe=refresh around payout
+   onboarding. Show the right notice, sync payout state, and clean the
+   URL so a reload doesn't replay it. */
+async function handleReturnParams() {
+  let q;
+  try { q = new URLSearchParams(window.location.search); } catch { return; }
+  const payment = q.get("payment");
+  const stripe = q.get("stripe");
+  if (!payment && !stripe) return;
+  try { window.history.replaceState({}, "", window.location.pathname); } catch { /* ignore */ }
+  if (payment === "success") {
+    setNotice(q.get("kind") === "trade"
+      ? "Cash sent! The trade in your Trade tab will show it as paid in a few seconds."
+      : "Payment sent! Your order appears under YOUR ORDERS in the Market as soon as Stripe confirms it — usually a few seconds.");
+    // The webhook writes the order a beat after the redirect lands.
+    setTimeout(async () => { try { await refreshAll(); render(); } catch { /* keep current data */ } }, 4000);
+  } else if (payment === "cancelled") {
+    setNotice("Checkout cancelled — nothing was charged.");
+  }
+  if (stripe === "return") {
+    if (user && myProfile) setView({ kind: "shelf" });
+    await stripeStatus(false);
+    setNotice(myProfile?.stripe_payouts_enabled
+      ? "Welcome back — your payouts are ready. Buyers can pay you by card now."
+      : "Welcome back. If Stripe still shows steps to finish, tap FINISH SETUP on your shelf.");
+  } else if (stripe === "refresh") {
+    // Stripe's onboarding link expired mid-flow — mint a fresh one.
+    stripeOnboard();
+  }
+}
+
 async function boot() {
   captureReferral();
   try {
@@ -2072,6 +2327,15 @@ async function boot() {
     return;
   }
   render();
+  // Payments switch themselves on when the Stripe functions + keys
+  // exist; until then this resolves to "off" and nothing changes.
+  loadStripeConfig().then(async (on) => {
+    if (on) {
+      render();
+      await maybeSyncPayouts();
+    }
+    handleReturnParams();
+  });
 }
 sb.auth.onAuthStateChange(async (_event, session) => {
   const nextUser = session?.user || null;

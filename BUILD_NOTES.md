@@ -202,3 +202,98 @@ results. **Upgrade path:** Metron (metron.cloud) is a proper
 issue-level API with credits, but it requires a free account's
 credentials (HTTP 401 without), which a public static page cannot
 hold — it would need a small server proxy or per-member keys.
+
+## Update — Stripe Connect card payments (2026-11-26)
+
+Joshua approved real payments: **Stripe Connect, standard accounts,
+5% platform commission** (his earlier "stop and bring me the options"
+rule was honoured — he picked Stripe and set the commission). This
+supersedes the "No payments, ever" note in the Market & Trade section
+above. Full runbook: `web/README.md` step 11.
+
+**Architecture** (all money moves inside Stripe; the site holds no
+secret key anywhere):
+
+- `supabase/add-stripe-payments.sql` — the database half (also folded
+  into `schema.sql`). Collectors gain `stripe_account_id` + three
+  synced flag columns on the owner-only base table; the public views
+  project ONLY the `payouts_enabled` boolean, never the account id.
+  `orders` becomes the payment order book (fee/Stripe-id columns,
+  status ladder paid → shipped → received → completed, legacy
+  'placed' orders still completable): the old client insert policy is
+  dropped — orders are created ONLY by the webhook — and a guard
+  trigger gives each party exactly its own status moves. The sold
+  trigger now also clears `open_to_trades`/payment text. `offers`
+  gains `cash_status` (+ Stripe ids): accepting a cash deal flips it
+  to 'pending' inside the guard trigger; the guard's new service-key
+  path (auth.uid() IS NULL) may write ONLY the cash fields.
+- Four Edge Functions (`supabase/functions/stripe-*/index.ts`),
+  single-file, fetch-only, same pattern as `identify-cover`:
+  `stripe-config` (is payments on? + the publishable key),
+  `stripe-connect` (create standard account + hosted onboarding link;
+  status sync), `stripe-checkout` (destination-charge Checkout
+  sessions for listing buys and trade cash top-ups, 5%
+  application_fee_amount), `stripe-webhook` (signature-verified; the
+  ONLY writer of payment state: creates 'paid' orders idempotently by
+  checkout session, marks trade cash paid, syncs account flags on
+  account.updated; a paid-but-unfulfillable purchase is logged loudly
+  for a human refund rather than silently dropped).
+- Front end: My Shelf gains a **Selling payouts** panel (set up /
+  finish / ready states); the Sell or Trade form section prompts
+  sellers without payouts; BUY branches three ways — card checkout
+  when payments are on and the seller is ready, a plain explanation
+  when the seller isn't, and the original off-site order flow while
+  payments are off entirely (so the site works unchanged until the
+  keys land); orders show the ladder with per-role buttons and the
+  seller sees the 5% fee line; accepted trade offers show the cash
+  state and a PAY BY CARD button for the member who owes it; Stripe
+  return URLs (`?payment=…`, `?stripe=…`) land on notices + a status
+  sync. No sixth tab; five-tab phone fit re-verified.
+
+**Commission**: 5% of the price, `Math.round` to the cent, taken by
+Stripe as the application fee on the destination charge; Stripe's own
+processing fee comes out of the seller's side. Configurable via the
+`PLATFORM_FEE_PERCENT` function secret (default 5).
+
+**Ownership decision**: a paid book follows the site's existing model
+— the `mark_comic_sold_on_order` trigger flips it to status 'sold' on
+the seller's shelf and closes the listing; the order row (buyer,
+seller, price, fee) is the transfer record. No ownership rewrite was
+invented.
+
+**Verified locally** (no live keys exist yet): PGlite (real Postgres)
+test of the true upgrade path — folded schema reverted to the
+pre-stripe state, legacy order + accepted cash offer created under the
+old rules, migration applied twice — **34/34 checks**: backfill,
+view hygiene (no account id anywhere public, values still hidden),
+client order inserts blocked, webhook-style order creation + full
+listing close-out, duplicate-session rejection, the whole status
+ladder with per-party guard errors, legacy completion, cash
+accept → pending → server-only paid, server barred from everything
+else. Node unit tests of the real function files — **19/19**:
+signature verification (valid / tampered / wrong secret / stale /
+rotation), fee math, Stripe form encoding. Headless Chrome at 390px
+— **22/22**: tabs, market modals for ready/not-ready sellers, order
+buttons + fee line, trade cash button/paid line, all three payout
+panel states, no overflow, no JS errors. (The older trade UI suite
+shows 31/32: its one failure is a pre-existing assertion flaw —
+`innerText` applies the `.label` uppercase transform, so a
+mixed-case string can never match; the DOM text itself is verified
+correct.)
+
+**Two bugs the tests caught and fixed before shipping**: (1) the
+migration's cash backfill originally ran under the OLD offer guard,
+which rejects every update to an answered offer — the guard
+replacement now deliberately precedes the backfill; (2) nothing else
+— the guards' direct `auth.uid()` calls are fine on real Supabase
+(the API roles can execute it; the local stub needed the same grant
+Supabase ships).
+
+**Remaining steps** (need Joshua's Stripe account / the dashboard —
+see README step 11 for the click-by-click version): activate the
+platform Stripe account + enable Connect (standard accounts); run
+`add-stripe-payments.sql` in the SQL editor; deploy the four
+functions (`stripe-webhook` with Verify JWT **off**); set the secrets
+`STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`;
+create the Stripe webhook endpoint for the three events. Until then
+the live site behaves exactly as before.

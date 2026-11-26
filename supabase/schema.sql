@@ -56,7 +56,20 @@
 -- As in the original design there is no separate listings table: a listing
 -- is a comic with status = 'for_sale' and asking_price_cents set. The
 -- public.listings view presents active listings. Orders snapshot the price
--- at purchase time. No payments are taken anywhere in this schema.
+-- at purchase time.
+--
+-- PAYMENTS (Stripe Connect, added 2026-11-26 — see add-stripe-payments.sql)
+-- ------------------------------------------------------------------------
+-- Members who sell can connect a Stripe STANDARD account (collectors.
+-- stripe_account_id + synced enabled flags, written only by the
+-- stripe-connect Edge Function with the service key). Buyers pay by card
+-- through Stripe Checkout as destination charges: the money lands in the
+-- seller's own Stripe account, minus Stripe's processing fee and a 5%
+-- platform commission (application_fee_amount) to the site's account.
+-- Orders are created ONLY by the stripe-webhook function after Stripe
+-- confirms payment; trade cash top-ups ride the same rails and their
+-- state lives on offers (cash_status). No Stripe secret lives in this
+-- schema — keys exist only as Edge Function secrets.
 -- ============================================================================
 
 create extension if not exists pgcrypto;
@@ -93,8 +106,28 @@ create table if not exists public.collectors (
   -- The collector's own choice: false (default) = my values are visible
   -- only to me; true = my books' current values may show in the gallery.
   show_values_publicly  boolean not null default false,
+  -- Who invited this member (their ?ref= link), recorded once at
+  -- profile creation. Kept from supabase/referrals.sql, folded here so
+  -- the public_profiles view below can expose it alongside payouts.
+  referred_by           uuid references public.collectors (id) on delete set null,
+  -- Stripe Connect (STANDARD) account for members who sell. The id is
+  -- written only by the stripe-connect Edge Function (service key); the
+  -- flags are synced from Stripe's own account state the same way. The
+  -- id never leaves this owner-only table — public views project only
+  -- the payouts_enabled boolean.
+  stripe_account_id     text,
+  stripe_charges_enabled boolean not null default false,
+  stripe_payouts_enabled boolean not null default false,
+  stripe_details_submitted boolean not null default false,
   created_at            timestamptz not null default now()
 );
+
+create unique index if not exists collectors_stripe_account_idx
+  on public.collectors (stripe_account_id)
+  where stripe_account_id is not null;
+
+create index if not exists collectors_referred_by_idx
+  on public.collectors (referred_by);
 
 -- The collector profile belonging to the currently signed-in auth user
 -- (NULL for anonymous visitors and for profiles not yet claimed).
@@ -168,7 +201,8 @@ create table if not exists public.comics (
   asking_price_cents  integer check (asking_price_cents is null or asking_price_cents >= 0),
   -- Payment methods the seller accepts for a listing, comma-joined picks
   -- from the form ("Cash, Zelle"). Public by design, like the asking
-  -- price — and NOT a payment account: the site takes no payments.
+  -- price — display text for settling off-site; card payment itself runs
+  -- through Stripe Connect (see the collectors Stripe columns).
   payment_methods     text not null default '',
   -- Free text for the "Other" payment method.
   payment_other       text not null default '',
@@ -298,8 +332,16 @@ create policy "comic_values: owner deletes own"
   ));
 
 -- ----------------------------------------------------------------------------
--- orders — one member buying another member's for-sale comic.
--- The price is snapshotted at purchase time. No payments are taken.
+-- orders — one member buying another member's for-sale comic, paid by
+-- card through Stripe Checkout (destination charge to the seller's
+-- connected account, 5% platform commission). The price and the fee are
+-- snapshotted at purchase time. Orders are created ONLY by the
+-- stripe-webhook Edge Function (service key) after Stripe confirms
+-- payment — no client insert policy exists, so nobody can mint an
+-- unpaid order. (Rows with status 'placed' predate card payments: the
+-- old off-site flow, kept completable by the seller.)
+-- Status ladder: paid → shipped → received → completed, moved only by
+-- the party whose leg it is, enforced by guard_order_update below.
 -- ----------------------------------------------------------------------------
 create table if not exists public.orders (
   id            uuid primary key default gen_random_uuid(),
@@ -307,8 +349,17 @@ create table if not exists public.orders (
   seller_id     uuid not null references public.collectors (id) on delete restrict,
   buyer_id      uuid not null references public.collectors (id) on delete restrict,
   price_cents   integer not null check (price_cents >= 0),
-  status        text not null default 'placed' check (status in ('placed', 'completed')),
+  -- The site's 5% commission, snapshotted (Stripe collects it as the
+  -- application fee; Stripe's own processing fee is separate and comes
+  -- out of the seller's side inside Stripe).
+  platform_fee_cents integer not null default 0 check (platform_fee_cents >= 0),
+  stripe_checkout_session_id text,
+  stripe_payment_intent_id   text,
+  status        text not null default 'placed'
+                check (status in ('placed', 'paid', 'shipped', 'received', 'completed', 'cancelled')),
   created_at    timestamptz not null default now(),
+  shipped_at    timestamptz,
+  received_at   timestamptz,
   completed_at  timestamptz,
   check (buyer_id <> seller_id)
 );
@@ -316,6 +367,9 @@ create table if not exists public.orders (
 create index if not exists orders_buyer_idx on public.orders (buyer_id);
 create index if not exists orders_seller_idx on public.orders (seller_id);
 create index if not exists orders_comic_idx on public.orders (comic_id);
+create unique index if not exists orders_stripe_session_idx
+  on public.orders (stripe_checkout_session_id)
+  where stripe_checkout_session_id is not null;
 
 alter table public.orders enable row level security;
 
@@ -329,33 +383,75 @@ create policy "orders: parties read"
     or seller_id = public.current_collector_id()
   );
 
--- A buyer places an order only for a book that is actually listed for sale
--- by the named seller, at exactly the listed asking price (the snapshot).
-drop policy if exists "orders: buyer places" on public.orders;
-create policy "orders: buyer places"
-  on public.orders for insert
-  to authenticated
-  with check (
-    buyer_id = public.current_collector_id()
-    and exists (
-      select 1 from public.comics cm
-      where cm.id = orders.comic_id
-        and cm.collector_id = orders.seller_id
-        and cm.status = 'for_sale'
-        and cm.asking_price_cents = orders.price_cents
-    )
-  );
-
--- The seller manages the order after placement (marks it complete).
-drop policy if exists "orders: seller updates" on public.orders;
-create policy "orders: seller updates"
+-- Parties may update an order, but the guard trigger below limits each
+-- side to its own status moves and freezes everything else. There is
+-- deliberately NO insert policy: orders are born in the webhook.
+drop policy if exists "orders: parties update status" on public.orders;
+create policy "orders: parties update status"
   on public.orders for update
   to authenticated
-  using (seller_id = public.current_collector_id())
-  with check (seller_id = public.current_collector_id());
+  using (
+    buyer_id = public.current_collector_id()
+    or seller_id = public.current_collector_id()
+  )
+  with check (
+    buyer_id = public.current_collector_id()
+    or seller_id = public.current_collector_id()
+  );
 
--- When an order is placed, the book leaves the market: it stays on the
--- seller's shelf with status 'sold' (same behaviour as the original app).
+create or replace function public.guard_order_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Server-side writers (Edge Functions with the service key) have no
+  -- auth user; payment state is theirs to write.
+  if auth.uid() is null then
+    return new;
+  end if;
+  if new.comic_id is distinct from old.comic_id
+     or new.seller_id is distinct from old.seller_id
+     or new.buyer_id is distinct from old.buyer_id
+     or new.price_cents is distinct from old.price_cents
+     or new.platform_fee_cents is distinct from old.platform_fee_cents
+     or new.stripe_checkout_session_id is distinct from old.stripe_checkout_session_id
+     or new.stripe_payment_intent_id is distinct from old.stripe_payment_intent_id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Only the status of an order can change.';
+  end if;
+  if public.current_collector_id() = old.seller_id then
+    if old.status = 'paid' and new.status = 'shipped' then
+      new.shipped_at = now();
+    elsif old.status = 'placed' and new.status = 'completed' then
+      -- Legacy off-site orders (placed before card payments existed).
+      new.completed_at = now();
+    elsif old.status = 'received' and new.status = 'completed' then
+      new.completed_at = now();
+    else
+      raise exception 'The seller can only mark a paid order shipped, or a received order complete.';
+    end if;
+  elsif public.current_collector_id() = old.buyer_id then
+    if old.status = 'shipped' and new.status = 'received' then
+      new.received_at = now();
+    else
+      raise exception 'The buyer can only mark a shipped order received.';
+    end if;
+  else
+    raise exception 'This order is not yours to update.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_guard_update on public.orders;
+create trigger orders_guard_update
+  before update on public.orders
+  for each row execute function public.guard_order_update();
+
+-- When an order lands, the book leaves the market completely: status
+-- 'sold' on the seller's shelf (the site's ownership model — the order
+-- row is the transfer record), asking price cleared, no longer
+-- trade-open, payment text cleared.
 -- SECURITY DEFINER because the buyer may not update the seller's comic.
 create or replace function public.mark_comic_sold_on_order()
 returns trigger
@@ -365,7 +461,11 @@ set search_path = public
 as $$
 begin
   update public.comics
-     set status = 'sold', asking_price_cents = null
+     set status = 'sold',
+         asking_price_cents = null,
+         open_to_trades = false,
+         payment_methods = '',
+         payment_other = ''
    where id = new.comic_id;
   return new;
 end;
@@ -386,7 +486,10 @@ create trigger orders_mark_comic_sold
 -- answers. The deal is written once and frozen; only the status moves
 -- (pending → accepted / declined / countered / withdrawn), guarded by a
 -- trigger so neither side can rewrite a deal or answer their own offer.
--- No payments are taken or recorded here — members settle themselves.
+-- The books themselves still change hands between the members; the CASH
+-- on a deal, once the offer is accepted, can be paid by card through
+-- Stripe (see the cash_status columns on offers below, written only by
+-- the guard trigger and the payment functions).
 -- ----------------------------------------------------------------------------
 create table if not exists public.offers (
   id                uuid primary key default gen_random_uuid(),
@@ -394,6 +497,15 @@ create table if not exists public.offers (
   to_collector_id   uuid not null references public.collectors (id) on delete cascade,
   target_comic_id   uuid not null references public.comics (id) on delete cascade,
   cash_cents        integer not null default 0 check (cash_cents >= 0),
+  -- Trade cash top-up payment state: 'not_required' (no cash, or the
+  -- deal isn't accepted yet) → 'pending' (accepted with cash — the
+  -- sender owes it) → 'paid' (the stripe-webhook function confirmed the
+  -- card payment). Written by the guard trigger (on accept) and by the
+  -- payment functions (service key) only — never by a member directly.
+  cash_status       text not null default 'not_required'
+                    check (cash_status in ('not_required', 'pending', 'paid')),
+  cash_checkout_session_id text,
+  cash_payment_intent_id   text,
   message           text not null default '',
   status            text not null default 'pending'
                     check (status in ('pending', 'accepted', 'declined', 'countered', 'withdrawn')),
@@ -473,6 +585,22 @@ returns trigger
 language plpgsql
 as $$
 begin
+  -- Server-side writers (Stripe checkout/webhook functions, service
+  -- key, no auth user) may change ONLY the three cash-payment fields —
+  -- that is how a started / landed cash payment is recorded.
+  if auth.uid() is null then
+    if new.status is distinct from old.status
+       or new.from_collector_id is distinct from old.from_collector_id
+       or new.to_collector_id is distinct from old.to_collector_id
+       or new.target_comic_id is distinct from old.target_comic_id
+       or new.parent_offer_id is distinct from old.parent_offer_id
+       or new.cash_cents is distinct from old.cash_cents
+       or new.message is distinct from old.message
+       or new.created_at is distinct from old.created_at then
+      raise exception 'Server updates to an offer may only record its cash payment.';
+    end if;
+    return new;
+  end if;
   if old.status <> 'pending' then
     raise exception 'This offer has already been answered.';
   end if;
@@ -482,7 +610,10 @@ begin
      or new.parent_offer_id is distinct from old.parent_offer_id
      or new.cash_cents is distinct from old.cash_cents
      or new.message is distinct from old.message
-     or new.created_at is distinct from old.created_at then
+     or new.created_at is distinct from old.created_at
+     or new.cash_status is distinct from old.cash_status
+     or new.cash_checkout_session_id is distinct from old.cash_checkout_session_id
+     or new.cash_payment_intent_id is distinct from old.cash_payment_intent_id then
     raise exception 'Only the status of an offer can change.';
   end if;
   if public.current_collector_id() = old.to_collector_id then
@@ -495,6 +626,10 @@ begin
     end if;
   else
     raise exception 'This offer is not yours to answer.';
+  end if;
+  -- Accepting a deal with cash on it starts the cash's card payment.
+  if new.status = 'accepted' and old.cash_cents > 0 then
+    new.cash_status = 'pending';
   end if;
   new.responded_at = now();
   return new;
@@ -538,10 +673,14 @@ create policy "offer_items: sender adds own deal"
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
 
--- Public profiles: every profile field except the auth link.
+-- Public profiles: every profile field except the auth link and the
+-- Stripe account id. payouts_enabled is a boolean badge ("this seller
+-- takes card payments") — the account id itself is never projected.
 create or replace view public.public_profiles as
 select id, display_name, handle, city, bio, avatar_color,
-       is_founder, show_values_publicly, created_at
+       is_founder, show_values_publicly, created_at,
+       referred_by,
+       stripe_payouts_enabled as payouts_enabled
 from public.collectors;
 
 -- The shared gallery: every book with its owner's public identity, plus
@@ -565,7 +704,8 @@ select cm.id,
        cm.extra_photos,
        cm.payment_methods,
        cm.payment_other,
-       cm.open_to_trades
+       cm.open_to_trades,
+       col.stripe_payouts_enabled as collector_payouts_enabled
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -587,7 +727,8 @@ select cm.id as comic_id,
        cm.extra_photos,
        cm.payment_methods,
        cm.payment_other,
-       cm.open_to_trades
+       cm.open_to_trades,
+       col.stripe_payouts_enabled as seller_payouts_enabled
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';
@@ -608,7 +749,7 @@ grant insert, update, delete on public.comics to authenticated;
 revoke all on public.comic_values from anon;
 grant select, insert, update, delete on public.comic_values to authenticated;
 
-grant select, insert, update on public.orders to authenticated;
+grant select, update on public.orders to authenticated;
 
 grant select, insert, update, delete on public.offers to authenticated;
 grant select, insert on public.offer_items to authenticated;

@@ -27,13 +27,18 @@ host — no build step, no server of its own.
   happens in Add a Book / Edit a Book, in the **Sell or Trade** section:
   a "List this book in the Market" tick, the asking price, the **payment
   methods the seller accepts** (Cash, Cash App, Venmo, Zelle, PayPal,
-  Other — shown on the listing; they are not payment accounts), and an
-  **Open to trades** tick. Signed-in members place orders (insert into
-  `orders`; the database checks the book is really listed, by that
-  seller, at that price, and flips it to sold) and track their
-  buying/selling orders; sellers mark orders complete. **No payment is
-  taken anywhere** — members arrange payment and handoff between
-  themselves.
+  Other — shown on the listing for settling directly), and an
+  **Open to trades** tick. Signed-in members track their buying/selling
+  orders here. **Card payments run through Stripe Connect** (deploy
+  step 11): a seller who has set up payouts (My Shelf) takes card
+  payment at Stripe's hosted checkout — a destination charge to their
+  own Stripe account, minus Stripe's fee and the site's **5% platform
+  commission** — and the order is written by the payment webhook when
+  the money lands, then walked through paid → shipped → received →
+  completed by the two parties. Sellers without payouts (and the whole
+  site, until step 11 is done) keep the original flow: BUY IT places
+  the order here, the database flips the book to sold, and the members
+  arrange payment and handoff between themselves.
 - **Trade** — the fifth tab, under the same **Buy · Sell · Trade** idea.
   A member picks another member's listed, trade-open book, then builds
   their side of a deal: tick any number of their own books, add optional
@@ -44,10 +49,13 @@ host — no build step, no server of its own.
   Offers live in `offers` / `offer_items`, visible only to the two
   members in the deal (row-level security); the deal text is frozen
   once sent and only the status moves, guarded by a database trigger.
-  Accepting changes no book and moves no money — the tab shows the book
-  owner's accepted payment methods so the two members settle between
-  themselves. Needs deploy step 10 below; until then the tab says
-  trading is being switched on.
+  Accepting changes no book by itself. The books settle between the
+  members, and the deal's **cash top-up can be paid by card** through
+  the same Stripe rails as the Market (step 11): the Trade tab shows
+  a PAY BY CARD button to the member who owes the cash once the deal
+  is accepted, and the payment state (`offers.cash_status`) is written
+  only by the payment functions. Needs deploy step 10 below; until
+  then the tab says trading is being switched on.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).
@@ -104,7 +112,12 @@ host — no build step, no server of its own.
   **show values publicly** toggle (off by default). The book grid has
   the same search and filter chips as the Gallery (all books / with
   cover art / signed / remarqued / graded / for sale), applied to the member's own
-  books only, in the same newest-first order.
+  books only, in the same newest-first order. The shelf also carries
+  the **Selling payouts** panel: a one-time "Set up payouts with
+  Stripe" onboarding (Stripe-hosted; the member's own standard Stripe
+  account), its finish/check-status states, and a link to the member's
+  Stripe dashboard once payouts are ready. Members who never sell
+  never need it.
 - **Referrals** — every member gets a personal invite link,
   `<site>/?ref=<handle>`, shown on My Shelf in a single **Invite a
   Collector** panel — one invite with two options under it: (1) share
@@ -231,6 +244,47 @@ host — no build step, no server of its own.
     listings, and the **Trade** tab. Until it is run, books still save
     normally — the market fields just don't persist yet — and the
     Trade tab explains that trading is being switched on.
+11. Card payments — Stripe Connect (one-time, Joshua approved
+    2026-11-26, with a **5% platform commission**). Until every part of
+    this step is done the site simply keeps its arrange-between-
+    yourselves behaviour — the front end asks the `stripe-config`
+    function whether payments are on and degrades gracefully while
+    they are not.
+    1. **Stripe account**: open the platform's Stripe account
+       (stripe.com) and activate it (business details + bank for the
+       commission payouts). In **Settings → Connect**, enable Connect
+       with **standard** accounts and card payments / transfers.
+    2. **Database**: in the SQL editor, run
+       `../supabase/add-stripe-payments.sql` (after step 10). It adds
+       the collectors Stripe columns, widens `orders` into the payment
+       order book (orders are then created only by the webhook),
+       projects the payouts boolean through the public views, and adds
+       the trade cash state to `offers`.
+    3. **Functions**: deploy four Edge Functions from
+       `../supabase/functions/` — `stripe-config`, `stripe-connect`,
+       `stripe-checkout`, and `stripe-webhook` — the same way
+       `identify-cover` was deployed (step 8). **`stripe-webhook` must
+       be deployed with "Verify JWT" turned OFF** (Stripe sends no
+       Supabase token; its signature is the authentication). The other
+       three keep JWT verification on.
+    4. **Secrets** (Edge Functions → Secrets, shared by all four):
+       `STRIPE_SECRET_KEY` (the platform account's secret key,
+       `sk_live_…`), `STRIPE_PUBLISHABLE_KEY` (`pk_live_…`), and —
+       after the next sub-step — `STRIPE_WEBHOOK_SECRET`.
+       Optional: `SITE_URL` (default
+       `https://magic-city-culture.vercel.app`),
+       `PLATFORM_FEE_PERCENT` (default `5`).
+    5. **Webhook**: in the Stripe dashboard → Developers → Webhooks,
+       add the endpoint
+       `https://ekdgbjnztnfrfjrhljpz.supabase.co/functions/v1/stripe-webhook`
+       listening for `checkout.session.completed`,
+       `checkout.session.async_payment_succeeded`, and
+       `account.updated`; copy its signing secret (`whsec_…`) into the
+       `STRIPE_WEBHOOK_SECRET` function secret.
+    6. **Check**: reload the site signed in as a seller — My Shelf's
+       "Selling payouts" panel offers the Stripe setup; after
+       onboarding, a second member sees PAY BY CARD on the listing,
+       and the paid order appears under YOUR ORDERS in the Market.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

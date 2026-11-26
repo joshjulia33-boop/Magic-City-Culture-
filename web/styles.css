@@ -316,6 +316,10 @@ h2.view-title { font-family: var(--font-display); font-size: 24px; margin: 0; }
 .order-card .o-meta { font-size: 13px; color: var(--dim); font-weight: 600; margin: 0.2rem 0 0; }
 .order-status { font-size: 11px; font-weight: 800; letter-spacing: 0.08em; padding: 0.2rem 0.55rem; border-radius: 9999px; }
 .order-status.placed { background: var(--orange); color: #000; }
+.order-status.paid { background: var(--blue); color: #000; }
+.order-status.shipped { background: #b537f2; color: #fff; }
+.order-status.received { background: #0090ff; color: #fff; }
+.order-status.cancelled { background: #55517e; color: #fff; }
 .order-status.completed { background: #00e5a0; color: #000; }
 h3.sub-title { font-family: var(--font-display); font-size: 17px; margin: 2rem 0 0; }
 
