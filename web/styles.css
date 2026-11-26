@@ -90,15 +90,16 @@ header.site {
   color: var(--text); margin-top: 4px; white-space: nowrap;
 }
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; flex: none; }
-/* Section tabs: a square bordered box around each word. Two rows of
-   two on phones, one row of four from 560px up. Each label is measured
-   on screen by app.js and shrunk until it fits inside its box, and the
-   box clips overflow — no word can clip, split mid-word, or spill. */
+/* Section tabs: a square bordered box around each word. Rows of two
+   on phones (the fifth tab wraps to its own row), one row of five
+   from 560px up. Each label is measured on screen by app.js and
+   shrunk until it fits inside its box, and the box clips overflow —
+   no word can clip, split mid-word, or spill. */
 nav.main-nav {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.375rem; padding-bottom: 0.6rem;
 }
-@media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 .nav-btn {
   min-width: 0; overflow: hidden; white-space: nowrap; text-align: center;
   border-radius: 8px; padding: 0.45rem 0.2rem; line-height: 1.15;
@@ -269,6 +270,7 @@ nav.main-nav {
 .badge.covertype { background: #7b2ff7; color: #fff; }
 .badge.sale { background: var(--accent); color: #fff; }
 .badge.sold { background: #55517e; color: #fff; }
+.badge.trade { background: #00e5a0; color: #000; }
 
 /* avatars */
 .avatar {
@@ -420,3 +422,61 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .photo-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
 .photo-preview { margin-top: 0.7rem; width: 7rem; border-radius: 6px; border: 2px solid #000; object-fit: cover; }
 .find-book .scan-status { color: var(--accent-soft); }
+
+/* ---------- market & trade: payment lines, deal builder, offers ---------- */
+.card .pay-line { margin-top: 0.15rem; font-size: 12px; font-weight: 700; color: var(--blue); }
+.card .trade-row { margin-top: 0.45rem; display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.sell-trade {
+  border: 1px solid var(--border); background: var(--surface);
+  border-radius: var(--radius); padding: 0.85rem; margin-bottom: 1rem;
+}
+.pay-checks { display: flex; gap: 0.6rem 1.1rem; flex-wrap: wrap; margin-top: 0.35rem; }
+/* offer status pills (extends the order statuses) */
+.order-status.pending { background: var(--orange); color: #000; }
+.order-status.accepted { background: #00e5a0; color: #000; }
+.order-status.declined { background: #55517e; color: #fff; }
+.order-status.countered { background: var(--blue); color: #000; }
+.order-status.withdrawn { background: #55517e; color: #fff; }
+/* deal builder: target cards + checkbox pick rows */
+.target-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-top: 1rem; }
+@media (min-width: 640px) { .target-grid { grid-template-columns: repeat(3, 1fr); } }
+.target-card {
+  text-align: left; padding: 0; overflow: hidden; color: var(--text);
+  border-radius: var(--radius); border: 2px solid #000; background: var(--surface);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.45); display: flex; flex-direction: column;
+}
+.target-card[aria-pressed="true"] { border-color: var(--blue); box-shadow: 0 0 0 2px var(--blue), 0 6px 0 rgba(0, 0, 0, 0.45); }
+.target-card .tc-body { padding: 0.6rem; }
+.target-card .tc-title { font-weight: 700; font-size: 14px; line-height: 1.25; margin: 0; }
+.target-card .tc-meta { font-size: 12px; font-weight: 700; color: var(--dim); margin-top: 0.2rem; }
+.target-card .tc-price { font-size: 13px; font-weight: 800; color: var(--accent); margin-top: 0.15rem; }
+.pick-list { display: grid; gap: 0.5rem; margin-top: 0.6rem; }
+.pick-row {
+  display: flex; align-items: center; gap: 0.65rem; width: 100%; text-align: left;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.55rem;
+  background: var(--bg); color: var(--text); font-weight: 600; font-size: 14px;
+}
+.pick-row input { width: 1.15rem; height: 1.15rem; accent-color: var(--accent); flex: none; }
+.pick-row img { width: 2.2rem; height: 3rem; object-fit: cover; border-radius: 4px; flex: none; background: #0d0b24; }
+.pick-row .pick-tile {
+  width: 2.2rem; height: 3rem; border-radius: 4px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-size: 12px; color: #fff;
+}
+.pick-row .pick-name { flex: 1; min-width: 0; }
+.pick-row .pick-tag { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; color: var(--blue); }
+/* offers */
+.offer-card {
+  border-radius: var(--radius); border: 2px solid #000; background: var(--surface);
+  box-shadow: 0 6px 0 rgba(0,0,0,0.45); padding: 1rem; margin-top: 0.75rem;
+}
+.offer-card .of-head { display: flex; gap: 0.75rem; align-items: flex-start; flex-wrap: wrap; }
+.offer-card .of-title { font-weight: 800; margin: 0; flex: 1; min-width: 12rem; }
+.offer-card .of-meta { font-size: 13px; color: var(--dim); font-weight: 600; margin: 0.2rem 0 0; }
+.offer-sides { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+@media (min-width: 640px) { .offer-sides { grid-template-columns: 1fr 1fr; } }
+.offer-side { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; background: var(--bg); }
+.offer-side .os-tag { font-size: 11px; font-weight: 800; letter-spacing: 0.14em; color: var(--blue); margin: 0 0 0.4rem; }
+.offer-side .os-book { font-size: 14px; font-weight: 600; margin: 0.15rem 0; }
+.offer-side .os-cash { font-size: 14px; font-weight: 800; color: var(--accent); margin: 0.3rem 0 0; }
+.offer-side .os-none { font-size: 13px; color: var(--dim); margin: 0; }

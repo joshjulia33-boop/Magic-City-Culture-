@@ -23,6 +23,22 @@ const COVER_TYPES = ["Standard", "Metal", "Leather", "Foil", "Holographic", "Chr
 function coverTypesOf(c) {
   return String(c?.cover_type || "").split(",").map((t) => t.trim()).filter(Boolean);
 }
+// Payment methods a seller accepts on a listing, picked in the form and
+// stored in comics.payment_methods as one comma-joined string ("Cash,
+// Zelle") — the same shape as cover_type. Public by design, like the
+// asking price: they are part of the offer to everyone. They are NOT
+// payment accounts — the site takes no payments; members settle
+// between themselves. "Other" carries its detail in payment_other.
+const PAYMENT_METHODS = ["Cash", "Cash App", "Venmo", "Zelle", "PayPal", "Other"];
+function paymentMethodsOf(c) {
+  return String(c?.payment_methods || "").split(",").map((t) => t.trim()).filter(Boolean);
+}
+function paymentLabel(c) {
+  const other = String(c?.payment_other || "").trim();
+  return paymentMethodsOf(c)
+    .map((m) => (m === "Other" && other ? `Other (${other})` : m))
+    .join(" · ");
+}
 // Extra photos live in comics.extra_photos as a JSON array of storage
 // URLs — the back cover, corner/page close-ups and the COA photo. The
 // main cover stays in cover_url, so a book holds 5 photos in total:
@@ -130,7 +146,15 @@ let listings = [];               // listings rows
 let myComics = [];               // my comics rows
 let myValues = new Map();        // comic_id -> comic_values row
 let myOrders = [];               // enriched orders (buying + selling)
-let view = { kind: "gallery" };  // gallery | market | collectors | profile | shelf
+let myOffers = [];               // enriched trade offers (sent + received)
+let offersReady = true;          // false until the offers tables exist (add-market-trades.sql)
+let tradeTargetId = "";          // builder: the listed book I want (its comic id)
+let tradeGive = new Set();       // builder: my comic ids I put into the deal
+let tradeWant = new Set();       // builder: their comic ids I ask for (target included)
+let tradeCash = "";              // builder: cash I add, as typed
+let tradeMessage = "";           // builder: note to the other member
+let counterOfId = null;          // builder: offer id this build counters, or null
+let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
 let galleryGroup = false;
@@ -195,6 +219,7 @@ function badgesHtml(c) {
   for (const t of coverTypesOf(c)) h += `<span class="badge covertype">${esc(t.toUpperCase())}</span>`;
   if (c.grade) h += `<span class="badge">${esc(c.grade)}</span>`;
   if (c.status === "for_sale" && c.asking_price_cents != null) h += `<span class="badge sale">FOR SALE ${esc(money(c.asking_price_cents))}</span>`;
+  if (c.status === "for_sale" && c.open_to_trades) h += `<span class="badge trade">OPEN TO TRADES</span>`;
   if (c.status === "sold") h += `<span class="badge sold">SOLD</span>`;
   if (c.status === "wishlist") h += `<span class="badge">WISHLIST</span>`;
   return h;
@@ -280,7 +305,7 @@ async function resolveMyProfile() {
   myProfile = data || null;
 }
 async function loadMine() {
-  myComics = []; myValues = new Map(); myOrders = [];
+  myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
   if (!myProfile) return;
   const [c, o] = await Promise.all([
     sb.from("comics").select("*").eq("collector_id", myProfile.id).order("created_at", { ascending: false }).limit(1000),
@@ -306,6 +331,41 @@ async function loadMine() {
   } else {
     myOrders = [];
   }
+  await loadMyOffers();
+}
+// Trade offers load separately and never break the rest of the shelf:
+// until supabase/add-market-trades.sql runs, the offers tables don't
+// exist and the Trade tab says trading is being switched on instead.
+async function loadMyOffers() {
+  myOffers = [];
+  if (!myProfile) return;
+  const { data: offs, error } = await sb.from("offers")
+    .select("*")
+    .or(`from_collector_id.eq.${myProfile.id},to_collector_id.eq.${myProfile.id}`)
+    .order("created_at", { ascending: false }).limit(500);
+  if (error) { offersReady = false; return; }
+  const raw = offs || [];
+  if (!raw.length) return;
+  const { data: items, error: iErr } = await sb.from("offer_items")
+    .select("*").in("offer_id", raw.map((o) => o.id)).limit(2000);
+  if (iErr) { offersReady = false; return; }
+  const comicIds = new Set(raw.map((o) => o.target_comic_id));
+  for (const it of items || []) comicIds.add(it.comic_id);
+  let cmap = new Map();
+  if (comicIds.size) {
+    // Comics are publicly readable; select * so rows simply lack the
+    // market columns until the one-time SQL adds them.
+    const { data: comics } = await sb.from("comics").select("*").in("id", [...comicIds]);
+    cmap = new Map((comics || []).map((x) => [x.id, x]));
+  }
+  myOffers = raw.map((o) => ({
+    ...o,
+    target: cmap.get(o.target_comic_id) || null,
+    offered: (items || []).filter((i) => i.offer_id === o.id && i.side === "offered")
+      .map((i) => ({ ...i, comic: cmap.get(i.comic_id) || null })),
+    requested: (items || []).filter((i) => i.offer_id === o.id && i.side === "requested")
+      .map((i) => ({ ...i, comic: cmap.get(i.comic_id) || null })),
+  }));
 }
 async function refreshAll() {
   await loadPublic();
@@ -452,6 +512,7 @@ function listingPhotoStripHtml(l) {
 function viewMarketHtml() {
   const cards = listings.map((l) => {
     const mine = myProfile && l.seller_id === myProfile.id;
+    const pays = paymentLabel(l);
     return `<article class="card">
       ${coverHtml({ ...l, id: l.comic_id, status: "for_sale" })}
       ${listingPhotoStripHtml(l)}
@@ -459,9 +520,13 @@ function viewMarketHtml() {
         <p class="title">${esc(l.title)} ${esc(l.issue)}</p>
         <button type="button" class="owner-link" data-action="goto-profile" data-id="${l.seller_id}">${esc(l.seller_name)}</button>
         <p class="forsale">${esc(money(l.asking_price_cents))}</p>
+        ${pays ? `<p class="pay-line">Accepts: ${esc(pays)}</p>` : ""}
         ${mine
           ? `<p class="sold-tag">YOUR LISTING</p>`
-          : `<button type="button" class="btn btn-pink btn-sm" style="margin-top:.45rem" data-action="buy" data-id="${l.comic_id}">BUY IT</button>`}
+          : `<div class="trade-row">
+              <button type="button" class="btn btn-pink btn-sm" data-action="buy" data-id="${l.comic_id}">BUY IT</button>
+              ${l.open_to_trades ? `<button type="button" class="btn btn-blue btn-sm" data-action="propose-trade" data-id="${l.comic_id}">PROPOSE A TRADE</button>` : ""}
+            </div>`}
       </div>
     </article>`;
   }).join("");
@@ -479,10 +544,275 @@ function viewMarketHtml() {
   }
   return `<section class="block">
     <h2 class="view-title neon-text">THE MARKET</h2>
-    <p class="view-sub">Books members have listed for sale, at the seller's asking price. Buying places the order here and marks the book sold — you and the seller arrange payment and handoff between yourselves.</p>
-    ${listings.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Nothing listed right now. Put one of your own books up from your shelf — set its status to For sale and name your price.</p>`}
+    <p class="view-sub"><strong>BUY · SELL · TRADE.</strong> Books members have listed for sale, at the seller's asking price — list your own from Add a Book or Edit a Book, with the payment methods you accept. Books marked OPEN TO TRADES can also be had for a bundle of your books plus cash: propose the deal in the Trade tab. Buying places the order here and marks the book sold — you and the seller arrange payment and handoff between yourselves.</p>
+    ${listings.length ? `<div class="grid">${cards}</div>` : `<p class="empty">Nothing listed right now. Put one of your own books up from your shelf — tick "List this book in the Market" in Add a Book or Edit a Book and name your price.</p>`}
     ${ordersHtml}
   </section>`;
+}
+
+/* ---------------- trade ----------------
+   Buy · Sell · Trade, the trade third: a member picks another member's
+   listed, trade-open book, bundles any number of their own books plus
+   optional cash ("upping the deal"), and sends the offer. The other
+   member accepts, declines, or counters — a counter is a fresh offer
+   back with the sides swapped, pre-filled from the original, so both
+   sides can bundle books. Deals are arranged here only: no payment is
+   taken or recorded, members settle between themselves. */
+function tradeTargets() {
+  return listings.filter((l) => l.open_to_trades && (!myProfile || l.seller_id !== myProfile.id));
+}
+function comicRowById(id) {
+  return gallery.find((c) => c.id === id)
+    || myComics.find((c) => c.id === id)
+    || (() => {
+      for (const o of myOffers) {
+        if (o.target?.id === id) return o.target;
+        for (const i of [...o.offered, ...o.requested]) if (i.comic?.id === id) return i.comic;
+      }
+      return null;
+    })();
+}
+function tradeOwnerId() {
+  const t = comicRowById(tradeTargetId);
+  return t ? t.collector_id : null;
+}
+function pickThumbHtml(c) {
+  if (c?.cover_url) return `<img src="${esc(c.cover_url)}" alt="" loading="lazy" decoding="async" />`;
+  return `<span class="pick-tile" style="background:${esc(c?.cover_color || "#FF2E88")}">${esc(initialsOf(c?.title || "?"))}</span>`;
+}
+function pickRowHtml(c, kind, tag = "") {
+  const picked = kind === "give" ? tradeGive.has(c.id) : tradeWant.has(c.id);
+  return `<label class="pick-row">
+    <input type="checkbox" data-pick-${kind}="${c.id}" ${picked ? "checked" : ""} />
+    ${pickThumbHtml(c)}
+    <span class="pick-name">${esc(c.title)} ${esc(c.issue)}${c.grade ? ` — ${esc(c.grade)}` : ""}${c.status === "for_sale" && c.asking_price_cents != null ? ` — listed ${esc(money(c.asking_price_cents))}` : ""}</span>
+    ${tag ? `<span class="pick-tag">${esc(tag)}</span>` : ""}
+  </label>`;
+}
+function tradeBuilderHtml() {
+  const targets = tradeTargets();
+  let h = "";
+  if (counterOfId) {
+    const orig = myOffers.find((o) => o.id === counterOfId);
+    const from = orig ? profileById(orig.from_collector_id) : null;
+    h += `<div class="values-panel" style="margin-top:1rem">
+      <p class="vp-tag">YOUR COUNTER-OFFER</p>
+      <p class="vp-note" style="margin-top:.4rem">You're answering ${esc(from ? from.display_name : "their")} offer. Your side starts with the books they asked for, their side with the books they offered — add or remove books, add cash, then send it back.</p>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="cancel-counter">CANCEL COUNTER</button>
+    </div>`;
+  } else {
+    h += `<h3 class="sub-title">BUILD A DEAL</h3>
+    <p class="view-sub" style="margin-top:.35rem">Pick the book you want — these are the listings whose owners are open to trades:</p>`;
+    if (!targets.length) {
+      h += `<p class="empty" style="padding:1.5rem 0">No books are open to trades right now. When a member ticks "Open to trades" on one of their listings, it shows up here.</p>`;
+    } else {
+      h += `<div class="target-grid">${targets.map((l) => `
+        <button type="button" class="target-card" data-action="trade-target" data-id="${l.comic_id}" aria-pressed="${tradeTargetId === l.comic_id}" aria-label="Build a deal for ${esc(l.title)} ${esc(l.issue)} from ${esc(l.seller_name)}">
+          ${coverHtml({ ...l, id: l.comic_id, status: "for_sale" })}
+          <span class="tc-body">
+            <span class="tc-title">${esc(l.title)} ${esc(l.issue)}</span>
+            <span class="tc-meta" style="display:block">${esc(l.seller_name)}</span>
+            <span class="tc-price" style="display:block">${esc(money(l.asking_price_cents))}</span>
+          </span>
+        </button>`).join("")}</div>`;
+    }
+  }
+  const ownerId = tradeOwnerId();
+  if (!tradeTargetId || !ownerId) return h;
+  const owner = profileById(ownerId);
+  const target = comicRowById(tradeTargetId);
+  const theirBooks = gallery.filter((c) => c.collector_id === ownerId && c.status !== "sold");
+  const myBooks = myComics.filter((c) => c.status !== "sold");
+  h += `<div class="sell-trade" style="margin-top:1.25rem">
+    <span class="label">Your deal for ${esc(target ? `${target.title} ${target.issue}` : "that book")} — with ${esc(owner ? owner.display_name : "the owner")}</span>
+    <p class="label" style="margin-top:.9rem">Their books — tick everything you want</p>
+    <div class="pick-list">
+      ${theirBooks.map((c) => pickRowHtml(c, "want", c.id === tradeTargetId ? "THE ONE YOU PICKED" : "")).join("") || `<p class="os-none">None of their books are available.</p>`}
+    </div>
+    <p class="label" style="margin-top:1rem">Your books — tick what you'll give</p>
+    <div class="pick-list">
+      ${myBooks.map((c) => pickRowHtml(c, "give")).join("") || `<p class="os-none">Your shelf is empty — add a book first, or offer cash below.</p>`}
+    </div>
+    <div class="field" style="margin-top:1rem"><label class="label" for="trade-cash">Cash you add to up the deal ($)</label>
+      <input class="input" id="trade-cash" inputmode="decimal" value="${esc(tradeCash)}" placeholder="0" /></div>
+    <div class="field"><label class="label" for="trade-message">Message</label>
+      <textarea class="input" id="trade-message" rows="2" maxlength="500" placeholder="Say what you're thinking — condition, meetup, sweeteners…">${esc(tradeMessage)}</textarea></div>
+    <p class="form-error" id="trade-error"></p>
+    <div class="row-actions">
+      <button type="button" class="btn btn-pink" data-action="send-offer">${counterOfId ? "SEND COUNTER-OFFER" : "SEND OFFER"}</button>
+    </div>
+    <p class="form-note" style="margin-top:.6rem">Sending proposes the deal — nothing is sold or paid here. If they accept, you settle between yourselves.</p>
+  </div>`;
+  return h;
+}
+function offerSideHtml(tag, items, cashCents) {
+  const books = (items || []).filter((i) => i.comic);
+  return `<div class="offer-side">
+    <p class="os-tag">${esc(tag)}</p>
+    ${books.length
+      ? books.map((i) => `<p class="os-book">${esc(i.comic.title)} ${esc(i.comic.issue)}${i.comic.grade ? ` — ${esc(i.comic.grade)}` : ""}</p>`).join("")
+      : `<p class="os-none">No books</p>`}
+    ${cashCents > 0 ? `<p class="os-cash">+ ${esc(money(cashCents))} cash</p>` : ""}
+  </div>`;
+}
+function offerCardHtml(o) {
+  const sentByMe = o.from_collector_id === myProfile?.id;
+  const other = profileById(sentByMe ? o.to_collector_id : o.from_collector_id);
+  const targetTitle = o.target ? `${o.target.title} ${o.target.issue}` : "a book";
+  const counteredBy = myOffers.find((x) => x.parent_offer_id === o.id);
+  let settle = "";
+  if (o.status === "accepted") {
+    const owner = o.target ? profileById(o.target.collector_id) : null;
+    const label = o.target ? paymentLabel(o.target) : "";
+    settle = `<p class="of-meta" style="margin-top:.6rem">Deal on! Settle between yourselves${owner ? ` — ${esc(owner.display_name)} accepts: ${label ? esc(label) : "arrange it with them"}` : ""}. No payment goes through the site.</p>`;
+  }
+  return `<div class="offer-card">
+    <div class="of-head">
+      <div style="flex:1;min-width:12rem">
+        <p class="of-title" style="font-weight:800;margin:0">${sentByMe ? `Your offer for ${esc(targetTitle)}` : `${esc(other ? other.display_name : "A member")} wants ${esc(targetTitle)}`}</p>
+        <p class="of-meta">${sentByMe ? `To ${esc(other ? other.display_name : "—")}` : `From ${esc(other ? other.display_name : "—")}`} • ${esc(orderDateLabel(o.created_at))}${o.parent_offer_id ? " • Counter-offer" : ""}</p>
+        ${o.message ? `<p class="of-meta" style="color:#c9c5ef">“${esc(o.message)}”</p>` : ""}
+      </div>
+      <span class="order-status ${o.status}">${o.status.toUpperCase()}</span>
+    </div>
+    <div class="offer-sides">
+      ${offerSideHtml(sentByMe ? "YOU GIVE" : "THEY GIVE", o.offered, o.cash_cents)}
+      ${offerSideHtml(sentByMe ? "YOU GET" : "YOU GIVE", o.requested, 0)}
+    </div>
+    ${settle}
+    ${counteredBy && o.status === "countered" ? `<p class="of-meta" style="margin-top:.6rem">They answered with a counter-offer — it's in your offers below.</p>` : ""}
+    ${o.status === "pending" ? `<div class="row-actions">
+      ${sentByMe
+        ? `<button type="button" class="btn btn-ghost btn-sm" data-action="offer-withdraw" data-id="${o.id}">WITHDRAW</button>`
+        : `<button type="button" class="btn btn-pink btn-sm" data-action="offer-accept" data-id="${o.id}">ACCEPT</button>
+           <button type="button" class="btn btn-blue btn-sm" data-action="offer-counter" data-id="${o.id}">COUNTER</button>
+           <button type="button" class="btn btn-ghost btn-sm" data-action="offer-decline" data-id="${o.id}">DECLINE</button>`}
+    </div>` : ""}
+  </div>`;
+}
+function viewTradeHtml() {
+  if (!user) {
+    return `<section class="block"><div class="center-note">
+      <p class="big">SIGN IN TO TRADE</p>
+      <p>Trading is members-only — your books for theirs, with cash to up a deal.</p>
+      <button type="button" class="btn btn-pink" data-action="open-auth" data-mode="signin">SIGN IN</button>
+      <button type="button" class="btn btn-blue" data-action="open-auth" data-mode="join">JOIN THE COMMUNITY</button>
+    </div></section>`;
+  }
+  if (!myProfile) {
+    return `<section class="block"><div class="center-note">
+      <p class="big">ONE MORE STEP — YOUR COLLECTOR PROFILE</p>
+      <p>You're signed in. Create your collector profile and your shelf becomes your trade stock.</p>
+      <button type="button" class="btn btn-pink" data-action="create-profile">CREATE MY PROFILE</button>
+    </div></section>`;
+  }
+  const received = myOffers.filter((o) => o.to_collector_id === myProfile.id);
+  const sent = myOffers.filter((o) => o.from_collector_id === myProfile.id);
+  return `<section class="block">
+    <h2 class="view-title neon-text">TRADE</h2>
+    <p class="view-sub"><strong>BUY · SELL · TRADE.</strong> Bundle your books, add cash to up a deal, and trade with other collectors. Both sides can stack books — and a counter-offer lets the other member stack theirs. No payments happen here; when a deal is accepted you settle between yourselves.</p>
+    ${offersReady ? tradeBuilderHtml() : `<p class="empty">Trading is being switched on — check back shortly.</p>`}
+    <h3 class="sub-title">OFFERS FOR YOU</h3>
+    ${received.length ? received.map(offerCardHtml).join("") : `<p class="empty" style="padding:1.5rem 0">No offers yet. List a book in the Market with "Open to trades" ticked and members can propose deals for it.</p>`}
+    <h3 class="sub-title">OFFERS YOU SENT</h3>
+    ${sent.length ? sent.map(offerCardHtml).join("") : `<p class="empty" style="padding:1.5rem 0">You haven't proposed a trade yet — build a deal above.</p>`}
+  </section>`;
+}
+function resetTradeBuilder() {
+  tradeTargetId = ""; tradeGive = new Set(); tradeWant = new Set();
+  tradeCash = ""; tradeMessage = ""; counterOfId = null;
+}
+function selectTradeTarget(comicId) {
+  counterOfId = null;
+  tradeTargetId = comicId;
+  tradeGive = new Set();
+  tradeWant = new Set([comicId]);
+  tradeCash = ""; tradeMessage = "";
+  render();
+}
+function proposeTrade(comicId) {
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  const l = listings.find((x) => x.comic_id === comicId);
+  if (!l || l.seller_id === myProfile.id) { setNotice("That listing isn't open for a trade offer."); return; }
+  closeModal();
+  selectTradeTarget(comicId);
+  setView({ kind: "trade" });
+}
+function startCounter(offerId) {
+  const o = myOffers.find((x) => x.id === offerId);
+  if (!o || o.status !== "pending" || o.to_collector_id !== myProfile?.id) return;
+  counterOfId = o.id;
+  // My side starts as the books they asked for; their side as the books
+  // they offered. The anchor is the first of their books I'm asking for.
+  tradeGive = new Set(o.requested.map((i) => i.comic_id));
+  tradeWant = new Set(o.offered.map((i) => i.comic_id));
+  tradeTargetId = o.offered.length ? o.offered[0].comic_id : o.target_comic_id;
+  tradeCash = ""; tradeMessage = "";
+  setView({ kind: "trade" });
+}
+async function sendOffer() {
+  if (busy || !myProfile) return;
+  const errEl = $("#trade-error");
+  const fail = (msg) => { if (errEl) errEl.textContent = msg; else setNotice(msg); };
+  const ownerId = tradeOwnerId();
+  const target = comicRowById(tradeTargetId);
+  if (!ownerId || !target || ownerId === myProfile.id) { fail("Pick the book you want first."); return; }
+  if (target.status === "sold") { fail("That book has been sold — pick another target."); return; }
+  const want = gallery.filter((c) => c.collector_id === ownerId && c.status !== "sold" && tradeWant.has(c.id)).map((c) => c.id);
+  if (!want.includes(tradeTargetId)) want.unshift(tradeTargetId);
+  const give = myComics.filter((c) => c.status !== "sold" && tradeGive.has(c.id)).map((c) => c.id);
+  const cash = dollarsToCents(tradeCash) || 0;
+  if (!give.length && cash <= 0) { fail("Add at least one of your books — or some cash — to the deal."); return; }
+  busy = true;
+  try {
+    const { data: offer, error } = await sb.from("offers").insert({
+      from_collector_id: myProfile.id,
+      to_collector_id: ownerId,
+      target_comic_id: tradeTargetId,
+      cash_cents: cash,
+      message: tradeMessage.trim(),
+      parent_offer_id: counterOfId,
+    }).select("id").single();
+    if (error) throw error;
+    const items = [
+      ...give.map((id) => ({ offer_id: offer.id, comic_id: id, side: "offered" })),
+      ...want.map((id) => ({ offer_id: offer.id, comic_id: id, side: "requested" })),
+    ];
+    const { error: iErr } = await sb.from("offer_items").insert(items);
+    if (iErr) throw iErr;
+    if (counterOfId) {
+      const { error: cErr } = await sb.from("offers").update({ status: "countered" }).eq("id", counterOfId);
+      if (cErr) throw cErr;
+    }
+    const other = profileById(ownerId);
+    resetTradeBuilder();
+    setNotice(`Offer sent to ${other ? other.display_name : "the book's owner"} — they'll find it in their Trade tab.`);
+    await refreshAll();
+    setView({ kind: "trade" });
+  } catch (ex) {
+    fail(ex.message || "The offer didn't go through — try again.");
+  } finally {
+    busy = false;
+  }
+}
+async function respondOffer(offerId, status) {
+  if (busy || !myProfile) return;
+  busy = true;
+  try {
+    const { error } = await sb.from("offers").update({ status }).eq("id", offerId);
+    if (error) throw error;
+    setNotice(status === "accepted"
+      ? "Deal accepted! Settle payment and handoff between yourselves — the Trade tab shows the payment methods on the book."
+      : status === "declined" ? "Offer declined."
+      : "Offer withdrawn.");
+    await refreshAll();
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "Couldn't update that offer.");
+  } finally {
+    busy = false;
+  }
 }
 
 /* ---------------- collectors & public profile ---------------- */
@@ -676,6 +1006,7 @@ function render() {
   try {
     if (view.kind === "gallery") app.innerHTML = viewGalleryHtml();
     else if (view.kind === "market") app.innerHTML = viewMarketHtml();
+    else if (view.kind === "trade") app.innerHTML = viewTradeHtml();
     else if (view.kind === "collectors") app.innerHTML = viewCollectorsHtml();
     else if (view.kind === "profile") app.innerHTML = viewProfileHtml(view.collectorId);
     else if (view.kind === "shelf") app.innerHTML = viewShelfHtml();
@@ -708,6 +1039,22 @@ function render() {
       if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
     });
   }
+  // Trade builder: checkbox picks and the cash/message boxes update
+  // state only (no re-render), so ticking books never jumps the page.
+  document.querySelectorAll("[data-pick-give]").forEach((el) => {
+    el.addEventListener("change", () => {
+      if (el.checked) tradeGive.add(el.dataset.pickGive); else tradeGive.delete(el.dataset.pickGive);
+    });
+  });
+  document.querySelectorAll("[data-pick-want]").forEach((el) => {
+    el.addEventListener("change", () => {
+      if (el.checked) tradeWant.add(el.dataset.pickWant); else tradeWant.delete(el.dataset.pickWant);
+    });
+  });
+  const tradeCashEl = $("#trade-cash");
+  if (tradeCashEl) tradeCashEl.addEventListener("input", (e) => { tradeCash = e.target.value; });
+  const tradeMsgEl = $("#trade-message");
+  if (tradeMsgEl) tradeMsgEl.addEventListener("input", (e) => { tradeMessage = e.target.value; });
   const inviteForm = $("#invite-form");
   if (inviteForm) {
     inviteForm.addEventListener("submit", (e) => {
@@ -788,11 +1135,13 @@ function openDetail(comicId) {
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
         ${c.current_value_cents != null ? `<p><span class="k">Current value (shared by the collector)</span>${esc(money(c.current_value_cents))}</p>` : ""}
         ${c.status === "for_sale" && c.asking_price_cents != null ? `<p><span class="k">Asking price</span><strong style="color:var(--accent)">${esc(money(c.asking_price_cents))}</strong></p>` : ""}
+        ${c.status === "for_sale" ? `<p><span class="k">Payment methods</span>${paymentLabel(c) ? esc(paymentLabel(c)) : "Arrange with the seller"}</p>` : ""}
+        ${c.status === "for_sale" ? `<p><span class="k">Open to trades</span>${c.open_to_trades ? "Yes — propose a deal in the Trade tab" : "No"}</p>` : ""}
         ${c.status === "sold" ? `<p><span class="k">Status</span>Sold</p>` : ""}
         ${c.status === "for_sale" && c.asking_price_cents != null
           ? (mine
               ? `<p class="form-note">This is your listing.</p>`
-              : `<div class="row-actions"><button type="button" class="btn btn-pink" data-action="buy" data-id="${c.id}">BUY IT — ${esc(money(c.asking_price_cents))}</button></div>`)
+              : `<div class="row-actions"><button type="button" class="btn btn-pink" data-action="buy" data-id="${c.id}">BUY IT — ${esc(money(c.asking_price_cents))}</button>${c.open_to_trades ? `<button type="button" class="btn btn-blue" data-action="propose-trade" data-id="${c.id}">PROPOSE A TRADE</button>` : ""}</div>`)
           : ""}
       </div>
     </div>`, true);
@@ -1003,13 +1352,24 @@ function comicFormHtml(c, prefill = null) {
     <div class="field"><label class="check"><input type="checkbox" id="cf-coa" ${c?.has_coa ? "checked" : ""} /> COA — comes with a Certificate of Authenticity</label></div>
     <div class="field"><span class="label">Cover type — tap all that fit</span>
       <div class="filter-row" id="cf-cover-types" style="margin-top:.35rem">${coverTypeList.map((t) => `<button type="button" class="chip" data-cover-type="${esc(t)}" aria-pressed="${coverTypeSel.includes(t) ? "true" : "false"}">${esc(t)}</button>`).join("")}</div></div>
+    <section class="sell-trade" aria-labelledby="cf-sell-trade">
+      <span class="label" id="cf-sell-trade">Sell or trade — the Market</span>
+      <div class="field" style="margin-top:.45rem"><label class="check"><input type="checkbox" id="cf-listed" ${status === "for_sale" ? "checked" : ""} /> List this book in the Market</label></div>
+      <div id="cf-listing-wrap" ${status === "for_sale" ? "" : 'style="display:none"'}>
+        <div class="field"><label class="label" for="cf-asking">Asking price ($) — public, it's your offer to everyone</label>
+          <input class="input" id="cf-asking" inputmode="decimal" value="${esc(centsToDollars(c?.asking_price_cents))}" placeholder="25" /></div>
+        <div class="field"><span class="label">Payment methods I accept</span>
+          <div class="pay-checks" id="cf-pay-checks">${PAYMENT_METHODS.map((m) => `<label class="check"><input type="checkbox" name="cf-pay" value="${esc(m)}" ${paymentMethodsOf(c).includes(m) ? "checked" : ""} /> ${esc(m)}</label>`).join("")}</div>
+          <p class="form-note" style="margin:.35rem 0 0">Shown on your listing so a buyer knows how they can pay you. The site takes no payments — you settle between yourselves.</p></div>
+        <div class="field" id="cf-pay-other-wrap" ${paymentMethodsOf(c).includes("Other") ? "" : 'style="display:none"'}><label class="label" for="cf-pay-other">Other — how?</label>
+          <input class="input" id="cf-pay-other" maxlength="120" value="${esc(c?.payment_other || "")}" placeholder="e.g. Apple Pay, bank transfer" /></div>
+        <div class="field"><label class="check"><input type="checkbox" id="cf-trades" ${c?.open_to_trades ? "checked" : ""} /> Open to trades — members can offer me their books (plus cash) for this one</label></div>
+      </div>
+    </section>
     <div class="field"><label class="label" for="cf-status">Status</label>
       <select class="input" id="cf-status">
         ${[["owned", "On my shelf"], ["for_sale", "For sale"], ["wishlist", "Wishlist"], ["sold", "Sold"]].map(([val, label]) => `<option value="${val}" ${val === status ? "selected" : ""}>${label}</option>`).join("")}
       </select></div>
-    <div class="field" id="cf-asking-wrap" ${status === "for_sale" ? "" : 'style="display:none"'}>
-      <label class="label" for="cf-asking">Asking price ($) — public, it's your offer to everyone</label>
-      <input class="input" id="cf-asking" inputmode="decimal" value="${esc(centsToDollars(c?.asking_price_cents))}" placeholder="25" /></div>
     <h3 style="font-size:15px;margin:1rem 0 .5rem">Your private numbers — only you ever see these</h3>
     <div class="field"><label class="label" for="cf-paid">What you paid ($)</label>
       <input class="input" id="cf-paid" inputmode="decimal" value="${esc(centsToDollars(v?.purchase_price_cents))}" /></div>
@@ -1089,8 +1449,23 @@ function openComicForm(comicId = null, prefill = null) {
     signedByInput.value = btn.dataset.signer;
     signedBySuggest.hidden = true;
   });
-  $("#cf-status").addEventListener("change", (e) => {
-    $("#cf-asking-wrap").style.display = e.target.value === "for_sale" ? "" : "none";
+  // "List this book in the Market" and the Status select are two faces
+  // of the same fact (status = 'for_sale'); keep them in step both ways.
+  const syncListing = () => {
+    const listed = $("#cf-status").value === "for_sale";
+    $("#cf-listed").checked = listed;
+    $("#cf-listing-wrap").style.display = listed ? "" : "none";
+  };
+  $("#cf-listed").addEventListener("change", (e) => {
+    if (e.target.checked) $("#cf-status").value = "for_sale";
+    else if ($("#cf-status").value === "for_sale") $("#cf-status").value = "owned";
+    syncListing();
+  });
+  $("#cf-status").addEventListener("change", syncListing);
+  $("#cf-pay-checks").addEventListener("change", (e) => {
+    if (e.target.name === "cf-pay" && e.target.value === "Other") {
+      $("#cf-pay-other-wrap").style.display = e.target.checked ? "" : "none";
+    }
   });
   $("#comic-form").addEventListener("submit", onComicSubmit);
 }
@@ -1109,10 +1484,11 @@ async function uploadCover(file, comicId) {
 // The newer comics columns arrive by one-time SQL (has_remark via
 // supabase/add-has-remark.sql, cover_type via supabase/add-cover-type.sql,
 // signed_by via supabase/add-signed-by.sql, extra_photos + has_coa via
-// supabase/add-extra-photos-coa.sql).
+// supabase/add-extra-photos-coa.sql, payment_methods + payment_other +
+// open_to_trades via supabase/add-market-trades.sql).
 // Until that SQL runs, PostgREST answers PGRST204 and names the column in
 // the message — the save then drops just that field and goes through.
-const OPTIONAL_COMIC_COLUMNS = ["extra_photos", "has_coa", "cover_type", "signed_by", "has_remark"];
+const OPTIONAL_COMIC_COLUMNS = ["extra_photos", "has_coa", "cover_type", "signed_by", "has_remark", "payment_methods", "payment_other", "open_to_trades"];
 function missingColumnOf(error, payload) {
   if (!error) return null;
   const msg = error.message || "";
@@ -1151,6 +1527,13 @@ async function onComicSubmit(e) {
       cover_type: [...document.querySelectorAll('#cf-cover-types [aria-pressed="true"]')].map((b) => b.dataset.coverType).join(", "),
       status,
       asking_price_cents: asking,
+      // Market details from the Sell or Trade section. The picks are
+      // saved even while the book is unlisted, so they are still there
+      // next time it is listed; they only ever show on a live listing.
+      payment_methods: [...document.querySelectorAll('input[name="cf-pay"]:checked')].map((i) => i.value).join(", "),
+      payment_other: [...document.querySelectorAll('input[name="cf-pay"]:checked')].some((i) => i.value === "Other")
+        ? $("#cf-pay-other").value.trim() : "",
+      open_to_trades: $("#cf-trades").checked,
       // No colour picker any more: an edit keeps the book's tile colour,
       // a new book just gets one from the palette.
       cover_color: comicId ? (myComics.find((x) => x.id === comicId)?.cover_color || pickTileColor()) : pickTileColor(),
@@ -1596,6 +1979,14 @@ document.addEventListener("click", (e) => {
     }
     case "buy": confirmBuy(id); break;
     case "complete-order": completeOrder(id); break;
+    case "propose-trade": proposeTrade(id); break;
+    case "trade-target": selectTradeTarget(id); break;
+    case "send-offer": sendOffer(); break;
+    case "offer-accept": respondOffer(id, "accepted"); break;
+    case "offer-decline": respondOffer(id, "declined"); break;
+    case "offer-withdraw": respondOffer(id, "withdrawn"); break;
+    case "offer-counter": startCounter(id); break;
+    case "cancel-counter": resetTradeBuilder(); render(); break;
     case "toggle-values": toggleValues(); break;
     case "copy-ref-link": copyReferralLink(); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;

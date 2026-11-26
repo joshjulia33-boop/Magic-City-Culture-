@@ -138,6 +138,41 @@ Nothing auto-saves. Honest limit: slab labels are clean print and read
 well; stylised raw-cover lettering can misread, which is why the member
 always confirms before saving.
 
+## Update — Market listing details + Trade tab (2026-11-26)
+
+Joshua's ask: "Buy sell and trade is the idea." Listing controls move
+into Add a Book / Edit a Book (a **Sell or Trade** section), and a fifth
+nav tab, **TRADE**, carries member-to-member trade offers.
+
+- **Schema** (`supabase/add-market-trades.sql`, folded into
+  `schema.sql`): `comics` gains `payment_methods` (comma-joined picks:
+  Cash, Cash App, Venmo, Zelle, PayPal, Other), `payment_other`, and
+  `open_to_trades`, all projected through `gallery_comics` and
+  `listings`. New tables **`offers`** (from/to collectors, target comic,
+  `cash_cents` the sender adds, message, status, `parent_offer_id` for
+  counters) and **`offer_items`** (one row per book per side:
+  'offered' = sender's books, 'requested' = receiver's books).
+- **Security**: offers/items are visible only to the two parties (RLS).
+  Item inserts require the book to belong to the correct side, so
+  nobody can put someone else's books into a deal. A
+  `guard_offer_update` trigger freezes the deal once sent — only the
+  status may move, receiver → accepted/declined/countered, sender →
+  withdrawn, and only from pending.
+- **Front end**: the form's Sell or Trade section (List-in-Market tick
+  synced with the Status select, price, payment-method checkboxes,
+  Open-to-trades tick); Market cards and the book detail show payment
+  methods, the OPEN TO TRADES badge, and a PROPOSE A TRADE button; the
+  Trade tab has the deal builder (target picker, both sides' checkbox
+  book lists, cash, message) plus received/sent offer inboxes with
+  Accept / Decline / Counter / Withdraw. Accepted offers surface the
+  target owner's accepted payment methods so members settle directly.
+- **No payments, ever**: payment-method names are display text on a
+  listing. No payment account is opened or needed; per Joshua's
+  standing rule, that step would stop for his decision first.
+- **Graceful before the SQL runs**: the three new comic fields ride the
+  form's existing optional-column drop, and the Trade tab shows a
+  "being switched on" note while the offers tables don't exist.
+
 ## Update — Book Search tab (2026-11-24)
 
 A **BOOK SEARCH** nav tab (`viewSearchHtml` / `runBookSearch` in

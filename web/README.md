@@ -23,12 +23,31 @@ host — no build step, no server of its own.
 - **Collectors** — public profiles from `public_profiles`, each opening a
   public shelf page (books from the gallery; shelf total only when the
   collector shares values).
-- **Market** — active `listings` (asking prices public). Signed-in members
-  place orders (insert into `orders`; the database checks the book is
-  really listed, by that seller, at that price, and flips it to sold) and
-  track their buying/selling orders; sellers mark orders complete. **No
-  payment is taken anywhere** — members arrange payment and handoff
-  between themselves.
+- **Market** — active `listings` (asking prices public). Listing a book
+  happens in Add a Book / Edit a Book, in the **Sell or Trade** section:
+  a "List this book in the Market" tick, the asking price, the **payment
+  methods the seller accepts** (Cash, Cash App, Venmo, Zelle, PayPal,
+  Other — shown on the listing; they are not payment accounts), and an
+  **Open to trades** tick. Signed-in members place orders (insert into
+  `orders`; the database checks the book is really listed, by that
+  seller, at that price, and flips it to sold) and track their
+  buying/selling orders; sellers mark orders complete. **No payment is
+  taken anywhere** — members arrange payment and handoff between
+  themselves.
+- **Trade** — the fifth tab, under the same **Buy · Sell · Trade** idea.
+  A member picks another member's listed, trade-open book, then builds
+  their side of a deal: tick any number of their own books, add optional
+  cash to up the deal, and a message. The offer lands in the other
+  member's Trade tab, which shows both sides; they can **Accept**,
+  **Decline**, or **Counter** — a counter opens the same builder
+  pre-filled with the sides swapped, so both members can bundle books.
+  Offers live in `offers` / `offer_items`, visible only to the two
+  members in the deal (row-level security); the deal text is frozen
+  once sent and only the status moves, guarded by a database trigger.
+  Accepting changes no book and moves no money — the tab shows the book
+  owner's accepted payment methods so the two members settle between
+  themselves. Needs deploy step 10 below; until then the tab says
+  trading is being switched on.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).
@@ -201,6 +220,17 @@ host — no build step, no server of its own.
    badge, and the "Certificate of Authenticity" line in the detail
    view. Until it is run, books still save normally — the extra
    photos and the COA tick just don't persist yet.
+10. Market details & trading (one-time): in the same SQL editor, run
+    `../supabase/add-market-trades.sql` (after `schema.sql` and
+    `add-extra-photos-coa.sql`). It adds `comics.payment_methods`,
+    `comics.payment_other` and `comics.open_to_trades`, projects all
+    three through the gallery/listings views, and creates the `offers`
+    and `offer_items` tables (with their row-level security and the
+    status-guard trigger), enabling the **Sell or Trade** section in
+    the add/edit form, payment methods and the OPEN TO TRADES badge on
+    listings, and the **Trade** tab. Until it is run, books still save
+    normally — the market fields just don't persist yet — and the
+    Trade tab explains that trading is being switched on.
 
 Cover photos for the founder's 31 verified-cover books are not in this
 repo (the GitHub connection moves text only); those books show colour

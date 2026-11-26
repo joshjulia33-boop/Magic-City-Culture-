@@ -166,6 +166,15 @@ create table if not exists public.comics (
   -- Marketplace asking price in cents, set only while status = 'for_sale'.
   -- Public by design — it is the offer to everyone. Cleared when unlisted.
   asking_price_cents  integer check (asking_price_cents is null or asking_price_cents >= 0),
+  -- Payment methods the seller accepts for a listing, comma-joined picks
+  -- from the form ("Cash, Zelle"). Public by design, like the asking
+  -- price — and NOT a payment account: the site takes no payments.
+  payment_methods     text not null default '',
+  -- Free text for the "Other" payment method.
+  payment_other       text not null default '',
+  -- The book can be traded for: other members may offer bundles of
+  -- their own books (plus cash) for it in the Trade tab.
+  open_to_trades      boolean not null default false,
   status              text not null default 'owned'
                       check (status in ('owned', 'for_sale', 'sold', 'wishlist')),
   cover_color         text not null default '#FF2E88',
@@ -368,6 +377,163 @@ create trigger orders_mark_comic_sold
   for each row execute function public.mark_comic_sold_on_order();
 
 -- ----------------------------------------------------------------------------
+-- offers / offer_items — trade offers between two members (Trade tab).
+-- An offer names one target book (the listed, trade-open book the sender
+-- wants), the books each side puts in (offer_items: 'offered' = the
+-- sender's books, 'requested' = the receiver's books, target included),
+-- and any cash the sender adds to up the deal. A counter is a new offer
+-- with the roles swapped and parent_offer_id pointing at the offer it
+-- answers. The deal is written once and frozen; only the status moves
+-- (pending → accepted / declined / countered / withdrawn), guarded by a
+-- trigger so neither side can rewrite a deal or answer their own offer.
+-- No payments are taken or recorded here — members settle themselves.
+-- ----------------------------------------------------------------------------
+create table if not exists public.offers (
+  id                uuid primary key default gen_random_uuid(),
+  from_collector_id uuid not null references public.collectors (id) on delete cascade,
+  to_collector_id   uuid not null references public.collectors (id) on delete cascade,
+  target_comic_id   uuid not null references public.comics (id) on delete cascade,
+  cash_cents        integer not null default 0 check (cash_cents >= 0),
+  message           text not null default '',
+  status            text not null default 'pending'
+                    check (status in ('pending', 'accepted', 'declined', 'countered', 'withdrawn')),
+  parent_offer_id   uuid references public.offers (id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now(),
+  responded_at      timestamptz,
+  check (from_collector_id <> to_collector_id)
+);
+
+create index if not exists offers_from_idx on public.offers (from_collector_id);
+create index if not exists offers_to_idx on public.offers (to_collector_id);
+create index if not exists offers_parent_idx on public.offers (parent_offer_id);
+
+drop trigger if exists offers_touch_updated_at on public.offers;
+create trigger offers_touch_updated_at
+  before update on public.offers
+  for each row execute function public.touch_updated_at();
+
+create table if not exists public.offer_items (
+  id         uuid primary key default gen_random_uuid(),
+  offer_id   uuid not null references public.offers (id) on delete cascade,
+  comic_id   uuid not null references public.comics (id) on delete cascade,
+  side       text not null check (side in ('offered', 'requested')),
+  created_at timestamptz not null default now(),
+  unique (offer_id, comic_id)
+);
+
+create index if not exists offer_items_offer_idx on public.offer_items (offer_id);
+
+alter table public.offers enable row level security;
+alter table public.offer_items enable row level security;
+
+drop policy if exists "offers: parties read" on public.offers;
+create policy "offers: parties read"
+  on public.offers for select
+  to authenticated
+  using (
+    from_collector_id = public.current_collector_id()
+    or to_collector_id = public.current_collector_id()
+  );
+
+drop policy if exists "offers: member sends" on public.offers;
+create policy "offers: member sends"
+  on public.offers for insert
+  to authenticated
+  with check (
+    from_collector_id = public.current_collector_id()
+    and exists (
+      select 1 from public.comics cm
+      where cm.id = offers.target_comic_id
+        and cm.collector_id = offers.to_collector_id
+    )
+  );
+
+drop policy if exists "offers: parties update status" on public.offers;
+create policy "offers: parties update status"
+  on public.offers for update
+  to authenticated
+  using (
+    from_collector_id = public.current_collector_id()
+    or to_collector_id = public.current_collector_id()
+  )
+  with check (
+    from_collector_id = public.current_collector_id()
+    or to_collector_id = public.current_collector_id()
+  );
+
+drop policy if exists "offers: sender deletes" on public.offers;
+create policy "offers: sender deletes"
+  on public.offers for delete
+  to authenticated
+  using (from_collector_id = public.current_collector_id());
+
+create or replace function public.guard_offer_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.status <> 'pending' then
+    raise exception 'This offer has already been answered.';
+  end if;
+  if new.from_collector_id is distinct from old.from_collector_id
+     or new.to_collector_id is distinct from old.to_collector_id
+     or new.target_comic_id is distinct from old.target_comic_id
+     or new.parent_offer_id is distinct from old.parent_offer_id
+     or new.cash_cents is distinct from old.cash_cents
+     or new.message is distinct from old.message
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Only the status of an offer can change.';
+  end if;
+  if public.current_collector_id() = old.to_collector_id then
+    if new.status not in ('accepted', 'declined', 'countered') then
+      raise exception 'The member answering an offer can only accept, decline, or counter it.';
+    end if;
+  elsif public.current_collector_id() = old.from_collector_id then
+    if new.status <> 'withdrawn' then
+      raise exception 'The member who sent an offer can only withdraw it.';
+    end if;
+  else
+    raise exception 'This offer is not yours to answer.';
+  end if;
+  new.responded_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists offers_guard_update on public.offers;
+create trigger offers_guard_update
+  before update on public.offers
+  for each row execute function public.guard_offer_update();
+
+drop policy if exists "offer_items: parties read" on public.offer_items;
+create policy "offer_items: parties read"
+  on public.offer_items for select
+  to authenticated
+  using (exists (
+    select 1 from public.offers o
+    where o.id = offer_items.offer_id
+      and (o.from_collector_id = public.current_collector_id()
+           or o.to_collector_id = public.current_collector_id())
+  ));
+
+drop policy if exists "offer_items: sender adds own deal" on public.offer_items;
+create policy "offer_items: sender adds own deal"
+  on public.offer_items for insert
+  to authenticated
+  with check (exists (
+    select 1 from public.offers o
+    join public.comics cm on cm.id = offer_items.comic_id
+    where o.id = offer_items.offer_id
+      and o.from_collector_id = public.current_collector_id()
+      and o.status = 'pending'
+      and (
+        (offer_items.side = 'offered' and cm.collector_id = o.from_collector_id)
+        or (offer_items.side = 'requested' and cm.collector_id = o.to_collector_id)
+      )
+  ));
+
+-- ----------------------------------------------------------------------------
 -- Public views (curated projections — the only public read paths that touch
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
@@ -396,7 +562,10 @@ select cm.id,
        cm.cover_type,
        cm.signed_by,
        cm.has_coa,
-       cm.extra_photos
+       cm.extra_photos,
+       cm.payment_methods,
+       cm.payment_other,
+       cm.open_to_trades
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -415,7 +584,10 @@ select cm.id as comic_id,
        cm.cover_type,
        cm.signed_by,
        cm.has_coa,
-       cm.extra_photos
+       cm.extra_photos,
+       cm.payment_methods,
+       cm.payment_other,
+       cm.open_to_trades
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';
@@ -437,6 +609,9 @@ revoke all on public.comic_values from anon;
 grant select, insert, update, delete on public.comic_values to authenticated;
 
 grant select, insert, update on public.orders to authenticated;
+
+grant select, insert, update, delete on public.offers to authenticated;
+grant select, insert on public.offer_items to authenticated;
 
 grant select on public.public_profiles to anon, authenticated;
 grant select on public.gallery_comics to anon, authenticated;
