@@ -574,6 +574,22 @@ launches, notable variants), rewrite the `items` array and
 `updatedAt` in `web/upcoming.js` keeping the exact field shape,
 verify every cover per the rules above, and push the single file.
 
+**Verification (2026-11-27)** — headless Chrome at 390px against a
+stubbed Supabase client (same harness family as Heat/Market):
+**60/60 checks pass** across three runs. Signed-in: both carousels
+on the gallery with Upcoming directly under Heat (adjacent
+sibling), 10 slides + 10 dots, title/"Updated"/sourceNote render,
+slide 1 active with the "#1 MOST WANTED" badge, date chip and
+why-hot line correct, slide 1 links to its DC source, all 10
+verified covers load as real images, both carousels auto-cycle
+independently at ~4s, Upcoming arrows/dots work and Heat's arrows
+still work alongside, both carousels again on a collector profile,
+Market and Trade still show the closed panel, no horizontal
+overflow, no JS errors. Signed-out run: both carousels render and
+cycle on the gallery with no sign-in. Degradation run with
+`upcoming.js` returning 404: no Upcoming section, Heat and the
+gallery render normally, no JS errors.
+
 ## Update — Market closed switch (2026-11-27)
 
 The owner ordered all buying and selling disabled site-wide until he
