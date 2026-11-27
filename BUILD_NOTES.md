@@ -712,3 +712,68 @@ with the notice and no write, edit states for plain, legacy and raw
 books all correct, unticking a graded book saves it raw, search
 prefill and photo-ID "CGC 9.8" both land ticked with the bare
 number, datalist exact, no overflow, no JS errors.
+
+## Update — Admin dashboard, founder only (2026-11-27)
+
+Joshua's pick from the common-features list: an Admin dashboard — one
+private page where only he sees member counts, new joins, reported
+posts, and can feature a book or a member on the front page. His rule
+behind it: everyone can see the site, only he controls everything.
+
+- **Schema** (`supabase/add-admin.sql`, folded into `schema.sql`):
+  `comics.is_featured` + `collectors.is_featured` (the founder's
+  front-page picks, projected through `gallery_comics`, `listings`,
+  and `public_profiles`), a helper `public.is_founder_collector()`,
+  and one new table, **`reports`** (reporter, target book/member,
+  reason, status open → resolved/dismissed, resolved_at). Featuring
+  is enforced twice: "founder features" UPDATE policies are the only
+  path to another member's row (collectors also gets a founder-only
+  SELECT policy — an UPDATE can only reach rows the caller can see),
+  and `guard_comic_featured` / `guard_collector_featured` triggers
+  reject any is_featured change from a non-founder on ANY row and
+  freeze every other column when the founder touches someone else's
+  row — his reach into a member's data is exactly one boolean wide.
+  Reports: any signed-in member inserts as themselves; SELECT and
+  UPDATE are founder-only; there is no DELETE grant or policy at all,
+  and `guard_report_update` freezes everything except status /
+  resolved_at. The dashboard shows counts and activity only — no
+  member's private values are involved anywhere.
+- **Front end**: a seventh nav tab, **ADMIN**, that app.js adds to
+  the nav only when the signed-in profile `is_founder` (removed for
+  everyone else; wide screens give his nav a 7-column row). The view:
+  OVERVIEW counts (members, books, signed, cover art, joins and books
+  added in the last 7 days), REPORTS with MARK RESOLVED / DISMISS,
+  FEATURED lists with UNFEATURE, FEATURE A BOOK (search across every
+  shelf) and FEATURE A MEMBER pickers, NEW JOINS (latest 10), LATEST
+  BOOKS (latest 10 community-wide). `render()` bounces a non-founder
+  who somehow lands on the admin view back to the gallery. On the
+  Gallery, a **⭐ FEATURED BY THE FOUNDER** strip sits under the hero
+  (above the carousels) rendering featured books and members with the
+  normal gallery / collector cards; it renders nothing when nothing
+  is featured. Report entry points: a REPORT THIS BOOK button in the
+  book detail and REPORT THIS MEMBER on profile pages — signed-in
+  members only, never on your own book/profile — opening a short
+  reason prompt that files into `reports` and confirms "Reported —
+  the founder will see it."
+- **Graceful before the SQL runs**: if the reports table / featured
+  columns don't exist yet, Report buttons stay hidden, the reports
+  section reads as switching on, and featuring answers with a notice
+  — the rest of the site is untouched. Market stays closed; Stripe
+  untouched.
+- **Verified locally**: PGlite (real Postgres) — schema + migration
+  apply cleanly and idempotently, **31/31 checks** (founder features
+  another member's book and the member; non-founder cannot move
+  is_featured anywhere, including their own book; founder cannot edit
+  another member's fields through the featured path; member files a
+  report, cannot read or answer any; founder reads, resolves, cannot
+  rewrite or delete; anon locked out of reports but sees the flags in
+  the public views). Headless Chrome at 390px with stubbed data —
+  **29/29 checks** across founder / member / signed-out sessions:
+  tab present only for the founder, all sections render, featuring a
+  book puts it in the Gallery strip, resolving empties the reports
+  list, a member's report files with the right reporter/target, a
+  direct admin-view attempt by member or visitor lands on the
+  gallery, no overflow, no JS errors.
+- **Remaining step**: run `supabase/add-admin.sql` in the Supabase
+  SQL Editor (handled separately). Until then the live site behaves
+  exactly as before.

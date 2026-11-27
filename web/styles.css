@@ -94,13 +94,16 @@ header.site {
    rows of two on phones, three per row from 560px up, one row of
    six on wide screens. Each label is measured on screen by app.js
    and shrunk until it fits inside its box, and the box clips
-   overflow — no word can clip, split mid-word, or spill. */
+   overflow — no word can clip, split mid-word, or spill. The
+   founder's nav carries a seventh tab (ADMIN, added by app.js only
+   for him); on wide screens his row fits all seven. */
 nav.main-nav {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.375rem; padding-bottom: 0.6rem;
 }
 @media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 1024px) { nav.main-nav { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { nav.main-nav.has-admin { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
 .nav-btn {
   min-width: 0; overflow: hidden; white-space: nowrap; text-align: center;
   border-radius: 8px; padding: 0.45rem 0.2rem; line-height: 1.15;
@@ -500,6 +503,30 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 }
 .pick-row .pick-name { flex: 1; min-width: 0; }
 .pick-row .pick-tag { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; color: var(--blue); }
+/* admin (founder only) + featured strip */
+.featured-strip { margin-top: 1.25rem; }
+.admin-row {
+  display: flex; align-items: center; gap: 0.65rem; width: 100%; text-align: left;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.55rem;
+  background: var(--bg); color: var(--text); font-weight: 600; font-size: 14px;
+  margin-top: 0.5rem;
+}
+.admin-row img { width: 2.2rem; height: 3rem; object-fit: cover; border-radius: 4px; flex: none; background: #0d0b24; }
+.admin-row .pick-tile {
+  width: 2.2rem; height: 3rem; border-radius: 4px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-display); font-size: 12px; color: #fff;
+}
+.admin-row .pick-name { flex: 1; min-width: 0; }
+.admin-row .avatar { flex: none; }
+.admin-meta { display: block; font-size: 12px; font-weight: 700; color: var(--dim); margin-top: 0.15rem; }
+.report-row {
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 0.8rem;
+  background: var(--bg); margin-top: 0.6rem;
+}
+.report-row .report-target { margin: 0; font-size: 14px; }
+.report-row .report-reason { margin: 0.35rem 0 0; font-size: 14px; color: #c9c5ef; }
+.report-row .row-actions { margin-top: 0.6rem; }
 /* offers */
 .offer-card {
   border-radius: var(--radius); border: 2px solid #000; background: var(--surface);

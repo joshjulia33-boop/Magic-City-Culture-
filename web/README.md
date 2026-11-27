@@ -72,6 +72,14 @@ host — no build step, no server of its own.
   books get a ★ everywhere, and when one is appearing within 50 miles
   (in person) a banner at the top of the view calls it out and the
   blip burns orange. No database step; no prices anywhere.
+- **Admin (founder only)** — a seventh tab that exists only for the
+  founder's account: community counts, new joins, latest books,
+  member **reports** to resolve or dismiss, and pickers to **feature
+  a book or a member** in the ⭐ FEATURED BY THE FOUNDER strip on the
+  front page. Members get a small Report button on other people's
+  books and profiles; only the founder can read or answer reports,
+  and only he can move the featured flags — all of it enforced in the
+  database (`supabase/add-admin.sql`), not just hidden in the UI.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).

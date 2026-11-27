@@ -189,6 +189,9 @@ let myOffers = [];               // enriched trade offers (sent + received)
 let offersReady = true;          // false until the offers tables exist (add-market-trades.sql)
 let myFriendships = [];          // friendship rows I'm in (sent + received)
 let friendsReady = true;         // false until the friendships table exists (add-friends.sql)
+let myReports = [];              // open reports — loaded ONLY for the founder (add-admin.sql)
+let adminReady = true;           // false until the reports table exists (add-admin.sql)
+let adminBookQuery = "";         // admin: feature-a-book search text
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -209,7 +212,7 @@ let heatPaused = false;          // heat monitor: pause auto-cycle on hover/touc
 let upcIndex = 0;                // hot up & coming: slide currently showing
 let upcTimer = null;             // hot up & coming: auto-cycle interval (cleared every render)
 let upcPaused = false;           // hot up & coming: pause auto-cycle on hover/touch
-let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar
+let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar | admin (founder only)
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
 let galleryGroup = false;
@@ -362,6 +365,7 @@ async function resolveMyProfile() {
 async function loadMine() {
   myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
   myFriendships = []; friendsReady = true;
+  myReports = []; adminReady = true;
   if (!myProfile) return;
   const [c, o] = await Promise.all([
     sb.from("comics").select("*").eq("collector_id", myProfile.id).order("created_at", { ascending: false }).limit(1000),
@@ -389,6 +393,7 @@ async function loadMine() {
   }
   await loadMyOffers();
   await loadMyFriendships();
+  await loadAdmin();
 }
 // Trade offers load separately and never break the rest of the shelf:
 // until supabase/add-market-trades.sql runs, the offers tables don't
@@ -441,6 +446,26 @@ async function loadMyFriendships() {
   if (error) { friendsReady = false; return; }
   myFriendships = data || [];
 }
+// Admin data loads separately and never breaks anything else: until
+// supabase/add-admin.sql runs, the reports table doesn't exist and the
+// Report buttons / ADMIN sections simply stay out of the way. The
+// founder gets his open reports; any other member's call is only a
+// one-row existence probe (RLS shows them nothing of the contents).
+async function loadAdmin() {
+  myReports = [];
+  if (!myProfile) return;
+  if (!myProfile.is_founder) {
+    const { error } = await sb.from("reports").select("id").limit(1);
+    if (error) adminReady = false;
+    return;
+  }
+  const { data, error } = await sb.from("reports")
+    .select("*")
+    .eq("status", "open")
+    .order("created_at", { ascending: false }).limit(200);
+  if (error) { adminReady = false; return; }
+  myReports = data || [];
+}
 async function refreshAll() {
   await loadPublic();
   await resolveMyProfile();
@@ -450,6 +475,31 @@ async function refreshAll() {
 
 /* ---------------- header ---------------- */
 function renderHeader() {
+  // The ADMIN tab exists only for the founder: it is added to the nav
+  // when his profile says is_founder and removed for everyone else —
+  // no tab, no trace. (The data layer enforces the real boundary; this
+  // is just the door being invisible.)
+  const nav = $("#main-nav");
+  if (nav) {
+    const adminBtn = nav.querySelector('[data-view="admin"]');
+    if (myProfile?.is_founder) {
+      nav.classList.add("has-admin");
+      if (!adminBtn) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "nav-btn";
+        b.dataset.view = "admin";
+        b.textContent = "ADMIN";
+        b.setAttribute("aria-pressed", "false");
+        b.addEventListener("click", () => setView({ kind: "admin" }));
+        nav.appendChild(b);
+      }
+    } else {
+      nav.classList.remove("has-admin");
+      if (adminBtn) adminBtn.remove();
+      if (view.kind === "admin") view = { kind: "gallery" };
+    }
+  }
   document.querySelectorAll("#main-nav .nav-btn").forEach((b) => {
     b.setAttribute("aria-pressed", String(b.dataset.view === view.kind || (view.kind === "profile" && b.dataset.view === "collectors")));
   });
@@ -493,6 +543,38 @@ function filteredGallery() {
       (c.collector_handle || "").toLowerCase().includes(q)
     );
   });
+}
+/* ---------------- featured by the founder ----------------
+   The front-page payoff of the Admin dashboard: whatever the founder
+   features (a book, a member) shows here for EVERYONE, rendered with
+   the same cards the gallery and collectors views use. The flags ride
+   the public views (is_featured); until add-admin.sql runs they are
+   simply absent and the strip renders nothing. */
+function featuredMemberCardHtml(p) {
+  const books = gallery.filter((c) => c.collector_id === p.id);
+  const signed = books.filter((c) => c.is_signed).length;
+  return `<article class="collector-card">
+    <button type="button" class="collector-main" data-action="goto-profile" data-id="${p.id}" aria-label="View ${esc(p.display_name)}'s shelf">
+      ${avatarHtml(p, "lg")}
+      <span>
+        <span class="cname">${esc(p.display_name)} ${p.is_founder ? '<span class="founder-tag">FOUNDER</span>' : ""}</span>
+        <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
+        ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
+        <span class="cmeta" style="display:block">${books.length} books • ${signed} signed • Joined ${esc(joinedLabel(p.created_at))}</span>
+      </span>
+    </button>
+    ${friendButtonHtml(p)}
+  </article>`;
+}
+function featuredStripHtml() {
+  const books = gallery.filter((c) => c.is_featured);
+  const members = profiles.filter((p) => p.is_featured);
+  if (!books.length && !members.length) return "";
+  return `<section class="featured-strip">
+    <h2 class="heat-title">⭐ FEATURED BY THE FOUNDER</h2>
+    ${books.length ? `<div class="grid">${books.map(galleryCardHtml).join("")}</div>` : ""}
+    ${members.length ? `<div class="collector-list">${members.map(featuredMemberCardHtml).join("")}</div>` : ""}
+  </section>`;
 }
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
@@ -538,6 +620,7 @@ function viewGalleryHtml() {
       <p class="lede">A shared gallery for comic collectors — browse every shelf in the community, then join and put your own books up next to them.</p>
     </div>
   </section>
+  ${featuredStripHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
   <section>
@@ -1103,6 +1186,7 @@ function viewProfileHtml(collectorId) {
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
     ${friendButtonHtml(p)}
+    ${user && myProfile && p.id !== myProfile.id && adminReady ? `<div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="report-member" data-id="${p.id}">REPORT THIS MEMBER</button></div>` : ""}
     ${heatCarouselHtml()}
     ${upcomingCarouselHtml()}
     ${books.length ? `<div class="grid">${books.map(galleryCardHtml).join("")}</div>` : `<p class="empty">No books on this shelf yet.</p>`}
@@ -1263,6 +1347,200 @@ function viewShelfHtml() {
   </section>`;
 }
 
+/* ---------------- admin (founder only) ----------------
+   The ADMIN view is rendered only when myProfile.is_founder — the
+   nav tab doesn't exist for anyone else, render() bounces a direct
+   attempt back to the gallery, and the database enforces the real
+   boundary (reports are founder-read-only; is_featured moves only
+   for the founder). Everything here is counts and activity — no
+   member's private values are ever shown, the founder's included. */
+function bookCountsByCollector() {
+  const counts = new Map();
+  for (const c of gallery) {
+    const cur = counts.get(c.collector_id) || { books: 0, signed: 0 };
+    cur.books += 1; if (c.is_signed) cur.signed += 1;
+    counts.set(c.collector_id, cur);
+  }
+  return counts;
+}
+function adminRowHtml(thumbHtml, nameHtml, metaHtml, actionsHtml) {
+  return `<div class="admin-row">
+    ${thumbHtml}
+    <span class="pick-name">${nameHtml}${metaHtml ? `<span class="admin-meta">${metaHtml}</span>` : ""}</span>
+    ${actionsHtml || ""}
+  </div>`;
+}
+function adminReportRowHtml(r) {
+  const reporter = profileById(r.reporter_id);
+  let targetHtml = "";
+  if (r.target_type === "book") {
+    const b = gallery.find((c) => c.id === r.target_id);
+    targetHtml = b
+      ? `Book: <strong>${esc(b.title)} ${esc(b.issue)}</strong> — on ${esc(b.collector_name)}'s shelf`
+      : `Book: a book that is no longer on the shelves`;
+  } else {
+    const m = profileById(r.target_id);
+    targetHtml = m
+      ? `Member: <strong>${esc(m.display_name)}</strong> (@${esc(m.handle)})`
+      : `Member: a member who is no longer here`;
+  }
+  return `<div class="report-row">
+    <p class="report-target">${targetHtml}</p>
+    ${r.reason ? `<p class="report-reason">“${esc(r.reason)}”</p>` : `<p class="report-reason">(no reason given)</p>`}
+    <p class="admin-meta">Reported by ${reporter ? `${esc(reporter.display_name)} (@${esc(reporter.handle)})` : "a member"} • ${esc(prettyDate(r.created_at))}</p>
+    <div class="row-actions">
+      <button type="button" class="btn btn-blue btn-sm" data-action="report-resolve" data-id="${r.id}">MARK RESOLVED</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-action="report-dismiss" data-id="${r.id}">DISMISS</button>
+    </div>
+  </div>`;
+}
+function viewAdminHtml() {
+  if (!myProfile?.is_founder) {
+    return `<section class="block"><p class="empty">Nothing here.</p></section>`;
+  }
+  const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+  const signed = gallery.filter((c) => c.is_signed).length;
+  const covers = gallery.filter((c) => c.cover_url).length;
+  const joinsWeek = profiles.filter((p) => new Date(p.created_at).getTime() >= weekAgo).length;
+  const booksWeek = gallery.filter((c) => new Date(c.created_at).getTime() >= weekAgo).length;
+  const counts = bookCountsByCollector();
+  const latestJoins = [...profiles]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 10);
+  const latestBooks = gallery.slice(0, 10);
+  const featuredBooks = gallery.filter((c) => c.is_featured);
+  const featuredMembers = profiles.filter((p) => p.is_featured);
+  const q = adminBookQuery.trim().toLowerCase();
+  const pickBooks = gallery
+    .filter((c) => !c.is_featured)
+    .filter((c) => !q || (c.title || "").toLowerCase().includes(q)
+      || (c.issue || "").toLowerCase().includes(q)
+      || (c.collector_name || "").toLowerCase().includes(q)
+      || (c.collector_handle || "").toLowerCase().includes(q))
+    .slice(0, 8);
+  const pickMembers = profiles.filter((p) => !p.is_featured);
+  return `<section class="block">
+    <h2 class="view-title neon-text">ADMIN</h2>
+    <p class="view-sub">Founder only — this page, and everything on it, exists just for you.</p>
+
+    <div class="values-panel">
+      <p class="vp-tag">OVERVIEW</p>
+      <div class="values-grid">
+        <div><p class="num">${profiles.length}</p><p class="cap">Members</p></div>
+        <div><p class="num">${gallery.length}</p><p class="cap">Books shelved</p></div>
+        <div><p class="num">${signed}</p><p class="cap">Signed</p></div>
+      </div>
+      <div class="values-grid" style="margin-top:.75rem">
+        <div><p class="num">${covers}</p><p class="cap">With cover art</p></div>
+        <div><p class="num blue">${joinsWeek}</p><p class="cap">Joined in the last 7 days</p></div>
+        <div><p class="num blue">${booksWeek}</p><p class="cap">Books added in the last 7 days</p></div>
+      </div>
+    </div>
+
+    <h3 class="sub-title">REPORTS</h3>
+    ${adminReady
+      ? (myReports.length
+          ? myReports.map(adminReportRowHtml).join("")
+          : `<p class="empty" style="padding:1.5rem 0">No reports — all quiet.</p>`)
+      : `<p class="empty" style="padding:1.5rem 0">Reports are being switched on — check back shortly.</p>`}
+
+    <h3 class="sub-title">FEATURED ON THE FRONT PAGE</h3>
+    ${featuredBooks.length || featuredMembers.length ? `
+      ${featuredBooks.map((c) => adminRowHtml(pickThumbHtml(c),
+        `${esc(c.title)} ${esc(c.issue)}`,
+        `Book • ${esc(c.collector_name)}`,
+        `<button type="button" class="btn btn-ghost btn-sm" data-action="admin-unfeature-book" data-id="${c.id}">UNFEATURE</button>`)).join("")}
+      ${featuredMembers.map((p) => adminRowHtml(avatarHtml(p),
+        `${esc(p.display_name)}`,
+        `Member • @${esc(p.handle)}`,
+        `<button type="button" class="btn btn-ghost btn-sm" data-action="admin-unfeature-member" data-id="${p.id}">UNFEATURE</button>`)).join("")}`
+      : `<p class="empty" style="padding:1.5rem 0">Nothing featured yet — pick a book or a member below and it goes on the front page for everyone.</p>`}
+
+    <h3 class="sub-title">FEATURE A BOOK</h3>
+    <div class="toolbar">
+      <label class="sr-only" for="admin-book-search" style="position:absolute;left:-9999px">Search books to feature</label>
+      <input id="admin-book-search" class="input grow" type="search" placeholder="Search every shelf — title, issue, collector…" value="${esc(adminBookQuery)}" />
+    </div>
+    ${pickBooks.length
+      ? pickBooks.map((c) => adminRowHtml(pickThumbHtml(c),
+          `${esc(c.title)} ${esc(c.issue)}`,
+          `${esc(c.collector_name)} • ${esc(prettyDate(c.created_at))}`,
+          `<button type="button" class="btn btn-pink btn-sm" data-action="admin-feature-book" data-id="${c.id}">FEATURE</button>`)).join("")
+      : `<p class="empty" style="padding:1rem 0">No unfeatured books match that search.</p>`}
+
+    <h3 class="sub-title">FEATURE A MEMBER</h3>
+    ${pickMembers.length
+      ? pickMembers.map((p) => adminRowHtml(avatarHtml(p),
+          `${esc(p.display_name)}`,
+          `@${esc(p.handle)} • ${(counts.get(p.id) || { books: 0 }).books} books`,
+          `<button type="button" class="btn btn-pink btn-sm" data-action="admin-feature-member" data-id="${p.id}">FEATURE</button>`)).join("")
+      : `<p class="empty" style="padding:1rem 0">Every member is featured already.</p>`}
+
+    <h3 class="sub-title">NEW JOINS</h3>
+    ${latestJoins.map((p) => adminRowHtml(avatarHtml(p),
+      `${esc(p.display_name)}`,
+      `@${esc(p.handle)} • Joined ${esc(prettyDate(p.created_at))} • ${(counts.get(p.id) || { books: 0 }).books} books`,
+      `<button type="button" class="btn btn-ghost btn-sm" data-action="goto-profile" data-id="${p.id}">VIEW</button>`)).join("")}
+
+    <h3 class="sub-title">LATEST BOOKS</h3>
+    ${latestBooks.length
+      ? latestBooks.map((c) => adminRowHtml(pickThumbHtml(c),
+          `${esc(c.title)} ${esc(c.issue)}`,
+          `${esc(c.collector_name)} (@${esc(c.collector_handle)}) • ${esc(prettyDate(c.created_at))}`,
+          `<button type="button" class="btn btn-ghost btn-sm" data-action="open-detail" data-id="${c.id}">VIEW</button>`)).join("")
+      : `<p class="empty" style="padding:1rem 0">No books yet.</p>`}
+  </section>`;
+}
+async function setFeatured(kind, id, value) {
+  const table = kind === "book" ? "comics" : "collectors";
+  const { error } = await sb.from(table).update({ is_featured: value }).eq("id", id);
+  if (error) {
+    setNotice("That didn't save — featuring switches on once the latest site update reaches the database.");
+    return;
+  }
+  try { await refreshAll(); } catch { /* keep current data */ }
+  render();
+}
+async function resolveReport(id, status) {
+  const { error } = await sb.from("reports")
+    .update({ status, resolved_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    setNotice("That didn't save — try again in a moment.");
+    return;
+  }
+  myReports = myReports.filter((r) => r.id !== id);
+  setNotice(status === "resolved" ? "Report marked resolved." : "Report dismissed.");
+  render();
+}
+/* ---------------- reports (members flag things for the founder) ------- */
+function openReportModal(targetType, targetId, label) {
+  if (!user || !myProfile) { openAuth("join"); return; }
+  openModal(`
+    ${modalHead("REPORT")}
+    <p class="form-note">Tell the founder what's wrong with ${esc(label)}. Only the founder sees reports.</p>
+    <form id="report-form">
+      <div class="field"><label class="label" for="report-reason">Reason</label>
+        <textarea class="input" id="report-reason" rows="3" maxlength="500" placeholder="What's the problem?"></textarea></div>
+      <div class="row-actions"><button type="submit" class="btn btn-pink">SEND REPORT</button></div>
+    </form>`);
+  $("#report-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const reason = $("#report-reason").value.trim();
+    const { error } = await sb.from("reports").insert({
+      reporter_id: myProfile.id,
+      target_type: targetType,
+      target_id: targetId,
+      reason,
+    });
+    closeModal();
+    if (error) {
+      setNotice("Reporting isn't switched on yet — sorry about that.");
+      return;
+    }
+    setNotice("Reported — the founder will see it.");
+  });
+}
+
 /* ---------------- render ---------------- */
 function render() {
   renderHeader();
@@ -1275,6 +1553,7 @@ function render() {
     else if (view.kind === "profile") app.innerHTML = viewProfileHtml(view.collectorId);
     else if (view.kind === "shelf") app.innerHTML = viewShelfHtml();
     else if (view.kind === "radar") app.innerHTML = viewRadarHtml();
+    else if (view.kind === "admin") app.innerHTML = (myProfile && myProfile.is_founder) ? viewAdminHtml() : viewGalleryHtml();
   } catch (e) {
     app.innerHTML = `<p class="empty">Something went sideways rendering this view.</p>`;
     console.error(e);
@@ -1288,6 +1567,16 @@ function render() {
       const pos = e.target.selectionStart;
       render();
       const s2 = $("#gallery-search");
+      if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
+    });
+  }
+  const adminSearchEl = $("#admin-book-search");
+  if (adminSearchEl) {
+    adminSearchEl.addEventListener("input", (e) => {
+      adminBookQuery = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const s2 = $("#admin-book-search");
       if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); }
     });
   }
@@ -1411,6 +1700,7 @@ function openDetail(comicId) {
               ? `<p class="form-note">This is your listing.</p>`
               : `<div class="row-actions"><button type="button" class="btn btn-pink" data-action="buy" data-id="${c.id}">BUY IT — ${esc(money(c.asking_price_cents))}</button>${c.open_to_trades ? `<button type="button" class="btn btn-blue" data-action="propose-trade" data-id="${c.id}">PROPOSE A TRADE</button>` : ""}</div>`)
           : ""}
+        ${user && myProfile && !mine && adminReady ? `<div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="report-book" data-id="${c.id}">REPORT THIS BOOK</button></div>` : ""}
       </div>
     </div>`, true);
 }
@@ -2977,6 +3267,14 @@ document.addEventListener("click", (e) => {
     case "offer-withdraw": respondOffer(id, "withdrawn"); break;
     case "offer-counter": startCounter(id); break;
     case "cancel-counter": resetTradeBuilder(); render(); break;
+    case "admin-feature-book": setFeatured("book", id, true); break;
+    case "admin-unfeature-book": setFeatured("book", id, false); break;
+    case "admin-feature-member": setFeatured("member", id, true); break;
+    case "admin-unfeature-member": setFeatured("member", id, false); break;
+    case "report-resolve": resolveReport(id, "resolved"); break;
+    case "report-dismiss": resolveReport(id, "dismissed"); break;
+    case "report-book": openReportModal("book", id, "this book"); break;
+    case "report-member": { const rp = profileById(id); openReportModal("member", id, rp ? `@${rp.handle}` : "this member"); break; }
     case "friend-add": sendFriendRequest(id); break;
     case "friend-accept": acceptFriendship(id); break;
     case "friend-remove": removeFriendship(id); break;

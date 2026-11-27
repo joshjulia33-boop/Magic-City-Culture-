@@ -103,6 +103,10 @@ create table if not exists public.collectors (
   bio                   text not null default '',
   avatar_color          text not null default '#FF2E88',
   is_founder            boolean not null default false,
+  -- The founder's front-page pick (see add-admin.sql). Publicly read
+  -- through public_profiles; changeable ONLY by the founder, on any
+  -- row — enforced by the guard trigger further down.
+  is_featured           boolean not null default false,
   -- The collector's own choice: false (default) = my values are visible
   -- only to me; true = my books' current values may show in the gallery.
   show_values_publicly  boolean not null default false,
@@ -144,6 +148,21 @@ as $$
   select id from public.collectors where auth_user_id = auth.uid()
 $$;
 
+-- Is the signed-in collector the founder? Used by the Admin dashboard
+-- policies (featured flags, reports — see add-admin.sql).
+create or replace function public.is_founder_collector()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.collectors
+    where id = public.current_collector_id() and is_founder
+  )
+$$;
+
 alter table public.collectors enable row level security;
 
 -- Base table: you can read only your own row (public reads use the view).
@@ -172,6 +191,64 @@ create policy "collectors: delete own profile"
   on public.collectors for delete
   to authenticated
   using (auth_user_id = auth.uid());
+
+-- The founder may UPDATE any profile row — but the guard trigger
+-- below narrows that reach to the is_featured flag alone. He also
+-- gets a founder-only SELECT policy: an UPDATE can only reach rows
+-- the caller can see, and this table is otherwise owner-read-only.
+drop policy if exists "collectors: founder reads" on public.collectors;
+create policy "collectors: founder reads"
+  on public.collectors for select
+  to authenticated
+  using (public.is_founder_collector());
+
+drop policy if exists "collectors: founder features" on public.collectors;
+create policy "collectors: founder features"
+  on public.collectors for update
+  to authenticated
+  using (public.is_founder_collector())
+  with check (public.is_founder_collector());
+
+-- Only the founder may move is_featured, on any row; and a founder
+-- updating somebody else's profile may change nothing else.
+create or replace function public.guard_collector_featured()
+returns trigger
+language plpgsql
+as $$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+  if new.is_featured is distinct from old.is_featured
+     and not public.is_founder_collector() then
+    raise exception 'Only the founder can feature a member.';
+  end if;
+  if public.is_founder_collector()
+     and old.auth_user_id is distinct from auth.uid()
+     and (new.auth_user_id is distinct from old.auth_user_id
+       or new.display_name is distinct from old.display_name
+       or new.handle is distinct from old.handle
+       or new.city is distinct from old.city
+       or new.bio is distinct from old.bio
+       or new.avatar_color is distinct from old.avatar_color
+       or new.is_founder is distinct from old.is_founder
+       or new.show_values_publicly is distinct from old.show_values_publicly
+       or new.referred_by is distinct from old.referred_by
+       or new.stripe_account_id is distinct from old.stripe_account_id
+       or new.stripe_charges_enabled is distinct from old.stripe_charges_enabled
+       or new.stripe_payouts_enabled is distinct from old.stripe_payouts_enabled
+       or new.stripe_details_submitted is distinct from old.stripe_details_submitted
+       or new.created_at is distinct from old.created_at) then
+    raise exception 'The founder can only feature or unfeature another member.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists collectors_guard_featured on public.collectors;
+create trigger collectors_guard_featured
+  before update on public.collectors
+  for each row execute function public.guard_collector_featured();
 
 -- ----------------------------------------------------------------------------
 -- comics — one row per book on a collector's shelf.
@@ -209,6 +286,10 @@ create table if not exists public.comics (
   -- The book can be traded for: other members may offer bundles of
   -- their own books (plus cash) for it in the Trade tab.
   open_to_trades      boolean not null default false,
+  -- The founder's front-page pick (see add-admin.sql). Public by
+  -- design like the rest of this table; changeable ONLY by the
+  -- founder, on any row — enforced by the guard trigger further down.
+  is_featured         boolean not null default false,
   status              text not null default 'owned'
                       check (status in ('owned', 'for_sale', 'sold', 'wishlist')),
   cover_color         text not null default '#FF2E88',
@@ -261,6 +342,66 @@ create policy "comics: remove own books"
   on public.comics for delete
   to authenticated
   using (collector_id = public.current_collector_id());
+
+-- The founder may UPDATE any book row — but the guard trigger below
+-- narrows that reach to the is_featured flag alone.
+drop policy if exists "comics: founder features" on public.comics;
+create policy "comics: founder features"
+  on public.comics for update
+  to authenticated
+  using (public.is_founder_collector())
+  with check (public.is_founder_collector());
+
+-- Only the founder may move is_featured, on any row; and a founder
+-- updating a book that is not theirs may change nothing else.
+-- (updated_at is deliberately not compared: the touch trigger
+-- maintains it.)
+create or replace function public.guard_comic_featured()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- Server-side writers (Edge Functions with the service key, and the
+  -- security-definer sold-marker behind them) have no auth user.
+  if auth.uid() is null then
+    return new;
+  end if;
+  if new.is_featured is distinct from old.is_featured
+     and not public.is_founder_collector() then
+    raise exception 'Only the founder can feature a book.';
+  end if;
+  if public.is_founder_collector()
+     and old.collector_id is distinct from public.current_collector_id()
+     and (new.collector_id is distinct from old.collector_id
+       or new.title is distinct from old.title
+       or new.issue is distinct from old.issue
+       or new.publisher is distinct from old.publisher
+       or new.variant is distinct from old.variant
+       or new.grade is distinct from old.grade
+       or new.is_signed is distinct from old.is_signed
+       or new.signed_by is distinct from old.signed_by
+       or new.has_coa is distinct from old.has_coa
+       or new.has_remark is distinct from old.has_remark
+       or new.cover_type is distinct from old.cover_type
+       or new.asking_price_cents is distinct from old.asking_price_cents
+       or new.payment_methods is distinct from old.payment_methods
+       or new.payment_other is distinct from old.payment_other
+       or new.open_to_trades is distinct from old.open_to_trades
+       or new.status is distinct from old.status
+       or new.cover_color is distinct from old.cover_color
+       or new.cover_url is distinct from old.cover_url
+       or new.extra_photos is distinct from old.extra_photos
+       or new.created_at is distinct from old.created_at) then
+    raise exception 'The founder can only feature or unfeature another member''s book.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists comics_guard_featured on public.comics;
+create trigger comics_guard_featured
+  before update on public.comics
+  for each row execute function public.guard_comic_featured();
 
 -- ----------------------------------------------------------------------------
 -- comic_values — OWNER-ONLY money & purchase details, one row per comic.
@@ -760,6 +901,77 @@ create trigger friendships_guard_update
   for each row execute function public.guard_friendship_update();
 
 -- ----------------------------------------------------------------------------
+-- reports — a member flags a book or another member for the founder
+-- (see add-admin.sql). Any signed-in member can file one as
+-- themselves; only the founder can read or answer them. No deletes
+-- for anyone: a report closes by its status, never by erasure.
+-- ----------------------------------------------------------------------------
+create table if not exists public.reports (
+  id          uuid primary key default gen_random_uuid(),
+  reporter_id uuid not null references public.collectors (id) on delete cascade,
+  target_type text not null check (target_type in ('book', 'member')),
+  target_id   uuid not null,
+  reason      text not null default '',
+  status      text not null default 'open'
+              check (status in ('open', 'resolved', 'dismissed')),
+  created_at  timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create index if not exists reports_open_idx
+  on public.reports (status, created_at desc);
+
+alter table public.reports enable row level security;
+
+drop policy if exists "reports: founder reads" on public.reports;
+create policy "reports: founder reads"
+  on public.reports for select
+  to authenticated
+  using (public.is_founder_collector());
+
+drop policy if exists "reports: member reports" on public.reports;
+create policy "reports: member reports"
+  on public.reports for insert
+  to authenticated
+  with check (
+    reporter_id = public.current_collector_id()
+    and status = 'open'
+  );
+
+drop policy if exists "reports: founder updates" on public.reports;
+create policy "reports: founder updates"
+  on public.reports for update
+  to authenticated
+  using (public.is_founder_collector())
+  with check (public.is_founder_collector());
+
+-- Answering a report may move only its status and resolved_at.
+create or replace function public.guard_report_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+  if new.id is distinct from old.id
+     or new.reporter_id is distinct from old.reporter_id
+     or new.target_type is distinct from old.target_type
+     or new.target_id is distinct from old.target_id
+     or new.reason is distinct from old.reason
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Only the status of a report can change.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists reports_guard_update on public.reports;
+create trigger reports_guard_update
+  before update on public.reports
+  for each row execute function public.guard_report_update();
+
+-- ----------------------------------------------------------------------------
 -- Public views (curated projections — the only public read paths that touch
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
@@ -771,7 +983,8 @@ create or replace view public.public_profiles as
 select id, display_name, handle, city, bio, avatar_color,
        is_founder, show_values_publicly, created_at,
        referred_by,
-       stripe_payouts_enabled as payouts_enabled
+       stripe_payouts_enabled as payouts_enabled,
+       is_featured
 from public.collectors;
 
 -- The shared gallery: every book with its owner's public identity, plus
@@ -796,7 +1009,8 @@ select cm.id,
        cm.payment_methods,
        cm.payment_other,
        cm.open_to_trades,
-       col.stripe_payouts_enabled as collector_payouts_enabled
+       col.stripe_payouts_enabled as collector_payouts_enabled,
+       cm.is_featured
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -819,7 +1033,8 @@ select cm.id as comic_id,
        cm.payment_methods,
        cm.payment_other,
        cm.open_to_trades,
-       col.stripe_payouts_enabled as seller_payouts_enabled
+       col.stripe_payouts_enabled as seller_payouts_enabled,
+       cm.is_featured
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';
@@ -846,6 +1061,8 @@ grant select, insert, update, delete on public.offers to authenticated;
 grant select, insert on public.offer_items to authenticated;
 
 grant select, insert, update, delete on public.friendships to authenticated;
+
+grant select, insert, update on public.reports to authenticated;
 
 grant select on public.public_profiles to anon, authenticated;
 grant select on public.gallery_comics to anon, authenticated;
