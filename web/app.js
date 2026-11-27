@@ -536,7 +536,7 @@ function viewGalleryHtml() {
     <div class="hero-text">
       <p class="presents">MAGIC CITY CULTURE PRESENTS</p>
       <h1 class="neon-text">THE COLLECTOR'S HUB</h1>
-      <p class="tagline">EVERY COLLECTOR. <span class="blue">ONE CITY.</span></p>
+      <p class="tagline">EVERY COLLECTOR. <span class="blue">ONE COMMUNITY.</span></p>
       <p class="lede">A shared gallery for comic collectors — browse every shelf in the community, then join and put your own books up next to them.</p>
       <div class="stat-chips">
         <span>${profiles.length} collectors</span>
