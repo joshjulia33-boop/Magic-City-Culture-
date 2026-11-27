@@ -6,3 +6,7 @@ window.MCC_CONFIG = {
   SUPABASE_URL: "https://ekdgbjnztnfrfjrhljpz.supabase.co",
   SUPABASE_PUBLISHABLE_KEY: "sb_publishable_lWl2ecnz0W47JGCiSLEomg_P-q2NQt3",
 };
+
+// Set by the owner. false = all buying and selling disabled site-wide
+// until he says otherwise. Flip to true to reopen.
+window.MCC_MARKET_OPEN = false;

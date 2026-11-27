@@ -503,3 +503,58 @@ renders; no horizontal overflow (scrollWidth = 390); no JS errors.
 Degradation run with `heat.js` returning 404: no heat section, the
 gallery renders normally, no JS errors.
 
+## Update — Market closed switch (2026-11-27)
+
+The owner ordered all buying and selling disabled site-wide until he
+says otherwise. It is a single front-end switch — no database change,
+no data change, nothing about Stripe (which stays on hold, untouched).
+
+**The switch:** `window.MCC_MARKET_OPEN` in `web/config.js`.
+
+```js
+window.MCC_MARKET_OPEN = false; // closed
+window.MCC_MARKET_OPEN = true;  // open
+```
+
+`web/app.js` reads it once as `MARKET_OPEN` (`!== false`, so the site
+only closes when the flag is explicitly false). **To reopen the
+Market, flip that one line to `true` and push `web/config.js`** —
+every surface below comes back exactly as it was, because nothing
+was deleted and no stored data was touched.
+
+**While closed, the flag hides:**
+
+- **Market tab** — listings, prices and the orders sections are
+  replaced by one closed panel: "🛑 THE MARKET IS CLOSED — Buying
+  and selling are paused for now. Browsing the Gallery still works —
+  check back soon." (`marketClosedHtml()` in app.js.)
+- **Trade tab** — same closed panel for every visitor; no deal
+  builder, no offer cards, no offer actions. Existing offers stay in
+  the database, unsurfaced.
+- **Book detail modal** — no Asking price, no Payment methods line,
+  no Open to trades line, no BUY IT / PROPOSE A TRADE buttons.
+- **Cards everywhere** (Gallery, profiles, My Shelf) — no FOR SALE
+  price badge, no OPEN TO TRADES badge, no FOR SALE / LISTED price
+  line; the Gallery hero loses its "N for sale" stat.
+- **Filter chips** — the "For sale" chip is gone from the Gallery
+  and from My Shelf (a stale `for_sale` filter value is ignored
+  while closed).
+- **Add / Edit Book form** — the whole "Sell or trade — the Market"
+  section is not rendered, and its form wiring is skipped. A save
+  while closed preserves the book's stored `asking_price_cents`,
+  `payment_methods`, `payment_other` and `open_to_trades` verbatim
+  (read from the existing row), so closing the Market can never
+  rewrite a listing's data; new books save as normal owned books.
+- **Action handlers** — `confirmBuy()` and `proposeTrade()` refuse
+  with a "Market is closed" notice even if invoked directly.
+
+**Untouched:** stored `status` / prices on every book, the offers and
+orders tables, the My Shelf values panel and private numbers, the
+Stripe payouts panel (payments were never switched on), Friends,
+Signing Radar, Heat Monitor, and photo ID.
+
+Verified in headless Chrome at 390px with stubbed data in both
+states: closed shows no price anywhere in the DOM on Market, Trade,
+Gallery, profile, shelf or detail views and no Sell or Trade section
+in the form; open restores today's behavior in full. No horizontal
+overflow and no JS errors in either state.

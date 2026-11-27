@@ -11,6 +11,24 @@ const sb = window.supabase.createClient(
   window.MCC_CONFIG.SUPABASE_PUBLISHABLE_KEY,
 );
 
+// Master commerce switch (set in config.js by the owner). While it is
+// off, every buy / sell / trade surface hides: no listings, no asking
+// prices or FOR SALE badges, no trade builder or offer actions, and no
+// Sell or Trade section in the book form. Nothing in the database
+// changes — books keep their stored status and prices — and flipping
+// the flag back on reopens the Market exactly as it was. See
+// BUILD_NOTES.md ("Market closed switch").
+const MARKET_OPEN = window.MCC_MARKET_OPEN !== false;
+function marketClosedHtml(title) {
+  return `<section class="block">
+    <h2 class="view-title neon-text">${title}</h2>
+    <div class="center-note market-closed">
+      <p class="big">🛑 THE MARKET IS CLOSED</p>
+      <p>Buying and selling are paused for now. Browsing the Gallery still works — check back soon.</p>
+    </div>
+  </section>`;
+}
+
 const COVER_COLORS = ["#FF2E88", "#00D4FF", "#B537F2", "#FF6EC7", "#0090FF", "#12102E", "#FF8A00", "#00E5A0", "#FF2E5F", "#00BFFF"];
 const PUBLISHERS = ["Marvel", "DC Comics", "Image Comics", "Dark Horse", "IDW", "Dynamite", "AWA", "BOOM! Studios", "Other"];
 const GRADES = ["", "Raw — Near Mint", "Raw — Very Fine", "Raw — Fine", "Raw", "CGC 10.0", "CGC 9.9", "CGC 9.8", "CGC 9.6", "CGC 9.4", "CGC 9.2", "CGC 9.0", "CBCS 9.8", "CBCS 9.6", "PGX 9.8"];
@@ -232,8 +250,8 @@ function badgesHtml(c) {
   if (c.has_remark) h += `<span class="badge remark">REMARQUED</span>`;
   for (const t of coverTypesOf(c)) h += `<span class="badge covertype">${esc(t.toUpperCase())}</span>`;
   if (c.grade) h += `<span class="badge">${esc(c.grade)}</span>`;
-  if (c.status === "for_sale" && c.asking_price_cents != null) h += `<span class="badge sale">FOR SALE ${esc(money(c.asking_price_cents))}</span>`;
-  if (c.status === "for_sale" && c.open_to_trades) h += `<span class="badge trade">OPEN TO TRADES</span>`;
+  if (MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null) h += `<span class="badge sale">FOR SALE ${esc(money(c.asking_price_cents))}</span>`;
+  if (MARKET_OPEN && c.status === "for_sale" && c.open_to_trades) h += `<span class="badge trade">OPEN TO TRADES</span>`;
   if (c.status === "sold") h += `<span class="badge sold">SOLD</span>`;
   if (c.status === "wishlist") h += `<span class="badge">WISHLIST</span>`;
   return h;
@@ -274,7 +292,7 @@ function galleryCardHtml(c) {
       <p class="title">${esc(c.title)} ${esc(c.issue)}</p>
       <button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button>
       ${c.current_value_cents != null ? `<p class="worth">Worth ${esc(money(c.current_value_cents))}</p>` : ""}
-      ${c.status === "for_sale" && c.asking_price_cents != null ? `<p class="forsale">FOR SALE — ${esc(money(c.asking_price_cents))}</p>` : ""}
+      ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null ? `<p class="forsale">FOR SALE — ${esc(money(c.asking_price_cents))}</p>` : ""}
       ${c.status === "sold" ? `<p class="sold-tag">SOLD</p>` : ""}
     </div>
   </article>`;
@@ -442,7 +460,7 @@ function filteredGallery() {
     if (galleryFilter === "signed" && !c.is_signed) return false;
     if (galleryFilter === "remarqued" && !c.has_remark) return false;
     if (galleryFilter === "graded" && !isGraded(c.grade)) return false;
-    if (galleryFilter === "for_sale" && c.status !== "for_sale") return false;
+    if (MARKET_OPEN && galleryFilter === "for_sale" && c.status !== "for_sale") return false;
     if (!q) return true;
     return (
       (c.title || "").toLowerCase().includes(q) ||
@@ -464,7 +482,7 @@ function viewGalleryHtml() {
     ["signed", "Signed"],
     ["remarqued", "Remarqued"],
     ["graded", "Graded"],
-    ["for_sale", "For sale"],
+    ...(MARKET_OPEN ? [["for_sale", "For sale"]] : []),
   ];
   let gridHtml;
   if (!filtered.length) {
@@ -502,7 +520,7 @@ function viewGalleryHtml() {
         <span>${gallery.length} books shelved</span>
         <span>${signedCount} signed</span>
         <span>${withCovers} with cover art</span>
-        <span>${forSaleCount} for sale</span>
+        ${MARKET_OPEN ? `<span>${forSaleCount} for sale</span>` : ""}
       </div>
     </div>
   </section>
@@ -561,6 +579,7 @@ function listingPhotoStripHtml(l) {
   </div>`;
 }
 function viewMarketHtml() {
+  if (!MARKET_OPEN) return marketClosedHtml("THE MARKET");
   const cards = listings.map((l) => {
     const mine = myProfile && l.seller_id === myProfile.id;
     const pays = paymentLabel(l);
@@ -756,6 +775,7 @@ function offerCardHtml(o) {
   </div>`;
 }
 function viewTradeHtml() {
+  if (!MARKET_OPEN) return marketClosedHtml("TRADE");
   if (!user) {
     return `<section class="block"><div class="center-note">
       <p class="big">SIGN IN TO TRADE</p>
@@ -796,6 +816,7 @@ function selectTradeTarget(comicId) {
   render();
 }
 function proposeTrade(comicId) {
+  if (!MARKET_OPEN) { setNotice("The Market is closed — buying and selling are paused for now."); return; }
   if (!user) { openAuth("join"); return; }
   if (!myProfile) { openProfileForm(); return; }
   const l = listings.find((x) => x.comic_id === comicId);
@@ -1080,7 +1101,7 @@ function filteredShelf() {
     if (shelfFilter === "signed" && !c.is_signed) return false;
     if (shelfFilter === "remarqued" && !c.has_remark) return false;
     if (shelfFilter === "graded" && !isGraded(c.grade)) return false;
-    if (shelfFilter === "for_sale" && c.status !== "for_sale") return false;
+    if (MARKET_OPEN && shelfFilter === "for_sale" && c.status !== "for_sale") return false;
     if (!q) return true;
     return (
       (c.title || "").toLowerCase().includes(q) ||
@@ -1171,7 +1192,7 @@ function viewShelfHtml() {
     ["signed", "Signed"],
     ["remarqued", "Remarqued"],
     ["graded", "Graded"],
-    ["for_sale", "For sale"],
+    ...(MARKET_OPEN ? [["for_sale", "For sale"]] : []),
   ];
   const cards = shelfBooks.map((c) => {
     const v = myValues.get(c.id);
@@ -1180,7 +1201,7 @@ function viewShelfHtml() {
       <div class="card-body">
         <p class="title">${esc(c.title)} ${esc(c.issue)}</p>
         ${v && v.current_value_cents != null ? `<p class="worth">${esc(money(v.current_value_cents))}</p>` : ""}
-        ${c.status === "for_sale" && c.asking_price_cents != null ? `<p class="forsale">LISTED — ${esc(money(c.asking_price_cents))}</p>` : ""}
+        ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null ? `<p class="forsale">LISTED — ${esc(money(c.asking_price_cents))}</p>` : ""}
         ${c.status === "sold" ? `<p class="sold-tag">SOLD</p>` : ""}
       </div>
     </article>`;
@@ -1364,11 +1385,11 @@ function openDetail(comicId) {
         ${coverTypesOf(c).length ? `<p><span class="k">Cover</span>${esc(coverTypesOf(c).join(", "))}</p>` : ""}
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
         ${c.current_value_cents != null ? `<p><span class="k">Current value (shared by the collector)</span>${esc(money(c.current_value_cents))}</p>` : ""}
-        ${c.status === "for_sale" && c.asking_price_cents != null ? `<p><span class="k">Asking price</span><strong style="color:var(--accent)">${esc(money(c.asking_price_cents))}</strong></p>` : ""}
-        ${c.status === "for_sale" ? `<p><span class="k">Payment methods</span>${paymentLabel(c) ? esc(paymentLabel(c)) : "Arrange with the seller"}</p>` : ""}
-        ${c.status === "for_sale" ? `<p><span class="k">Open to trades</span>${c.open_to_trades ? "Yes — propose a deal in the Trade tab" : "No"}</p>` : ""}
+        ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null ? `<p><span class="k">Asking price</span><strong style="color:var(--accent)">${esc(money(c.asking_price_cents))}</strong></p>` : ""}
+        ${MARKET_OPEN && c.status === "for_sale" ? `<p><span class="k">Payment methods</span>${paymentLabel(c) ? esc(paymentLabel(c)) : "Arrange with the seller"}</p>` : ""}
+        ${MARKET_OPEN && c.status === "for_sale" ? `<p><span class="k">Open to trades</span>${c.open_to_trades ? "Yes — propose a deal in the Trade tab" : "No"}</p>` : ""}
         ${c.status === "sold" ? `<p><span class="k">Status</span>Sold</p>` : ""}
-        ${c.status === "for_sale" && c.asking_price_cents != null
+        ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null
           ? (mine
               ? `<p class="form-note">This is your listing.</p>`
               : `<div class="row-actions"><button type="button" class="btn btn-pink" data-action="buy" data-id="${c.id}">BUY IT — ${esc(money(c.asking_price_cents))}</button>${c.open_to_trades ? `<button type="button" class="btn btn-blue" data-action="propose-trade" data-id="${c.id}">PROPOSE A TRADE</button>` : ""}</div>`)
@@ -1582,7 +1603,7 @@ function comicFormHtml(c, prefill = null) {
     <div class="field"><label class="check"><input type="checkbox" id="cf-coa" ${c?.has_coa ? "checked" : ""} /> COA — comes with a Certificate of Authenticity</label></div>
     <div class="field"><span class="label">Cover type — tap all that fit</span>
       <div class="filter-row" id="cf-cover-types" style="margin-top:.35rem">${coverTypeList.map((t) => `<button type="button" class="chip" data-cover-type="${esc(t)}" aria-pressed="${coverTypeSel.includes(t) ? "true" : "false"}">${esc(t)}</button>`).join("")}</div></div>
-    <section class="sell-trade" aria-labelledby="cf-sell-trade">
+    ${MARKET_OPEN ? `<section class="sell-trade" aria-labelledby="cf-sell-trade">
       <span class="label" id="cf-sell-trade">Sell or trade — the Market</span>
       <div class="field" style="margin-top:.45rem"><label class="check"><input type="checkbox" id="cf-listed" ${status === "for_sale" ? "checked" : ""} /> List this book in the Market</label></div>
       <div id="cf-listing-wrap" ${status === "for_sale" ? "" : 'style="display:none"'}>
@@ -1596,7 +1617,7 @@ function comicFormHtml(c, prefill = null) {
         <div class="field"><label class="check"><input type="checkbox" id="cf-trades" ${c?.open_to_trades ? "checked" : ""} /> Open to trades — members can offer me their books (plus cash) for this one</label></div>
         ${myProfile && !myProfile.stripe_payouts_enabled ? `<p class="form-note" style="margin:.35rem 0 0">Want buyers to pay by card? Set up payouts with Stripe — it's one-time, on My Shelf under "Selling payouts". Until then, buyers arrange payment with you directly.</p>` : ""}
       </div>
-    </section>
+    </section>` : ""}
     <div class="field"><label class="label" for="cf-status">Status</label>
       <select class="input" id="cf-status">
         ${[["owned", "On my shelf"], ["for_sale", "For sale"], ["wishlist", "Wishlist"], ["sold", "Sold"]].map(([val, label]) => `<option value="${val}" ${val === status ? "selected" : ""}>${label}</option>`).join("")}
@@ -1682,22 +1703,26 @@ function openComicForm(comicId = null, prefill = null) {
   });
   // "List this book in the Market" and the Status select are two faces
   // of the same fact (status = 'for_sale'); keep them in step both ways.
-  const syncListing = () => {
-    const listed = $("#cf-status").value === "for_sale";
-    $("#cf-listed").checked = listed;
-    $("#cf-listing-wrap").style.display = listed ? "" : "none";
-  };
-  $("#cf-listed").addEventListener("change", (e) => {
-    if (e.target.checked) $("#cf-status").value = "for_sale";
-    else if ($("#cf-status").value === "for_sale") $("#cf-status").value = "owned";
-    syncListing();
-  });
-  $("#cf-status").addEventListener("change", syncListing);
-  $("#cf-pay-checks").addEventListener("change", (e) => {
-    if (e.target.name === "cf-pay" && e.target.value === "Other") {
-      $("#cf-pay-other-wrap").style.display = e.target.checked ? "" : "none";
-    }
-  });
+  // The Sell or Trade section only exists while the Market is open, so
+  // the wiring is skipped entirely while it is closed.
+  if (MARKET_OPEN) {
+    const syncListing = () => {
+      const listed = $("#cf-status").value === "for_sale";
+      $("#cf-listed").checked = listed;
+      $("#cf-listing-wrap").style.display = listed ? "" : "none";
+    };
+    $("#cf-listed").addEventListener("change", (e) => {
+      if (e.target.checked) $("#cf-status").value = "for_sale";
+      else if ($("#cf-status").value === "for_sale") $("#cf-status").value = "owned";
+      syncListing();
+    });
+    $("#cf-status").addEventListener("change", syncListing);
+    $("#cf-pay-checks").addEventListener("change", (e) => {
+      if (e.target.name === "cf-pay" && e.target.value === "Other") {
+        $("#cf-pay-other-wrap").style.display = e.target.checked ? "" : "none";
+      }
+    });
+  }
   $("#comic-form").addEventListener("submit", onComicSubmit);
 }
 async function uploadPhoto(file, comicId, tag = "cover") {
@@ -1742,8 +1767,14 @@ async function onComicSubmit(e) {
   const comicId = form.dataset.comicId || null;
   try {
     const status = $("#cf-status").value;
-    const asking = status === "for_sale" ? dollarsToCents($("#cf-asking").value) : null;
-    if (status === "for_sale" && (!asking || asking <= 0)) throw new Error("Name an asking price to list this book for sale.");
+    // While the Market is closed the Sell or Trade section isn't in
+    // the form at all, so a save keeps the book's stored market details
+    // exactly as they were — closing the Market never rewrites data.
+    const prior = comicId ? myComics.find((x) => x.id === comicId) : null;
+    const asking = !MARKET_OPEN
+      ? (prior?.asking_price_cents ?? null)
+      : status === "for_sale" ? dollarsToCents($("#cf-asking").value) : null;
+    if (MARKET_OPEN && status === "for_sale" && (!asking || asking <= 0)) throw new Error("Name an asking price to list this book for sale.");
     const fields = {
       title: $("#cf-title").value.trim(),
       issue: $("#cf-issue").value.trim(),
@@ -1761,10 +1792,14 @@ async function onComicSubmit(e) {
       // Market details from the Sell or Trade section. The picks are
       // saved even while the book is unlisted, so they are still there
       // next time it is listed; they only ever show on a live listing.
-      payment_methods: [...document.querySelectorAll('input[name="cf-pay"]:checked')].map((i) => i.value).join(", "),
-      payment_other: [...document.querySelectorAll('input[name="cf-pay"]:checked')].some((i) => i.value === "Other")
-        ? $("#cf-pay-other").value.trim() : "",
-      open_to_trades: $("#cf-trades").checked,
+      payment_methods: MARKET_OPEN
+        ? [...document.querySelectorAll('input[name="cf-pay"]:checked')].map((i) => i.value).join(", ")
+        : (prior?.payment_methods || ""),
+      payment_other: MARKET_OPEN
+        ? ([...document.querySelectorAll('input[name="cf-pay"]:checked')].some((i) => i.value === "Other")
+          ? $("#cf-pay-other").value.trim() : "")
+        : (prior?.payment_other || ""),
+      open_to_trades: MARKET_OPEN ? $("#cf-trades").checked : !!prior?.open_to_trades,
       // No colour picker any more: an edit keeps the book's tile colour,
       // a new book just gets one from the palette.
       cover_color: comicId ? (myComics.find((x) => x.id === comicId)?.cover_color || pickTileColor()) : pickTileColor(),
@@ -2185,6 +2220,7 @@ async function payTradeCash(offerId) {
 
 /* ---------------- market actions ---------------- */
 function confirmBuy(comicId) {
+  if (!MARKET_OPEN) { setNotice("The Market is closed — buying and selling are paused for now."); return; }
   const l = listings.find((x) => x.comic_id === comicId);
   const g = !l ? gallery.find((x) => x.id === comicId && x.status === "for_sale") : null;
   const listing = l ? { ...l, sellerPayouts: l.seller_payouts_enabled === true } : (g ? {

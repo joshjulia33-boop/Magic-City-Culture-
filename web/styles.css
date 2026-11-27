@@ -401,6 +401,13 @@ textarea.copy-text { font-size: 13px; line-height: 1.45; }
 .center-note { text-align: center; padding: 3rem 0; }
 .center-note .big { font-family: var(--font-display); font-size: 20px; margin: 0 0 0.5rem; }
 .center-note p { color: #c9c5ef; }
+/* market closed notice (owner's master switch, config.js) */
+.market-closed {
+  margin-top: 1.25rem; border-radius: var(--radius); border: 2px solid #000;
+  background: var(--surface); box-shadow: 0 6px 0 rgba(0,0,0,0.45);
+  padding: 2.5rem 1rem;
+}
+.market-closed .big { color: var(--accent); }
 footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; color: var(--dim); font-size: 13px; text-align: center; }
 
 /* ---------- book photos: detail gallery, listing strip, form extras ---------- */
