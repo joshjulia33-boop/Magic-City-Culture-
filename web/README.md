@@ -80,6 +80,16 @@ host — no build step, no server of its own.
   books and profiles; only the founder can read or answer reports,
   and only he can move the featured flags — all of it enforced in the
   database (`supabase/add-admin.sql`), not just hidden in the UI.
+- **Direct Messages** — a tab that exists only for signed-in members
+  (with an unread-count badge): an inbox of conversations, a
+  new-message picker, and a thread view with a send box that quietly
+  refreshes every 15 seconds. A ✉ MESSAGE button on every collector
+  card and profile page jumps straight into a chat with that member.
+  Messages are private to the two members in them — enforced in the
+  database (`supabase/add-messages.sql`): each member can read only
+  their own rows, send only as themselves, and the only change anyone
+  can ever make to a sent message is the recipient marking it read.
+  Not even the founder can read a conversation he isn't part of.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).

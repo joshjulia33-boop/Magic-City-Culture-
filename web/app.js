@@ -192,6 +192,13 @@ let friendsReady = true;         // false until the friendships table exists (ad
 let myReports = [];              // open reports — loaded ONLY for the founder (add-admin.sql)
 let adminReady = true;           // false until the reports table exists (add-admin.sql)
 let adminBookQuery = "";         // admin: feature-a-book search text
+let myMessages = [];             // direct-message rows I'm in (sent + received)
+let messagesReady = true;        // false until the messages table exists (add-messages.sql)
+let msgThreadWith = null;        // collector id of the open thread, or null = inbox
+let msgPickerOpen = false;       // inbox: "new message" member picker showing
+let msgDraft = "";               // send-box text, kept across the quiet refresh
+let msgTimer = null;             // messages view: 15s quiet-refresh interval
+let msgRefreshing = false;       // messages view: refresh re-entrancy guard
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -212,7 +219,7 @@ let heatPaused = false;          // heat monitor: pause auto-cycle on hover/touc
 let upcIndex = 0;                // hot up & coming: slide currently showing
 let upcTimer = null;             // hot up & coming: auto-cycle interval (cleared every render)
 let upcPaused = false;           // hot up & coming: pause auto-cycle on hover/touch
-let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar | admin (founder only)
+let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar | admin (founder only) | messages (signed-in)
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
 let galleryGroup = false;
@@ -366,6 +373,7 @@ async function loadMine() {
   myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
   myFriendships = []; friendsReady = true;
   myReports = []; adminReady = true;
+  myMessages = []; messagesReady = true;
   if (!myProfile) return;
   const [c, o] = await Promise.all([
     sb.from("comics").select("*").eq("collector_id", myProfile.id).order("created_at", { ascending: false }).limit(1000),
@@ -394,6 +402,7 @@ async function loadMine() {
   await loadMyOffers();
   await loadMyFriendships();
   await loadAdmin();
+  await loadMyMessages();
 }
 // Trade offers load separately and never break the rest of the shelf:
 // until supabase/add-market-trades.sql runs, the offers tables don't
@@ -466,6 +475,26 @@ async function loadAdmin() {
   if (error) { adminReady = false; return; }
   myReports = data || [];
 }
+// Direct messages load separately and never break anything else:
+// until supabase/add-messages.sql runs, the messages table doesn't
+// exist and the MESSAGES tab just shows a "being switched on" note
+// while the MESSAGE buttons stay out of the way. RLS shows me only
+// rows I'm a party to — nobody, founder included, can read a
+// conversation they aren't in.
+async function loadMyMessages() {
+  myMessages = [];
+  if (!myProfile) return;
+  const { data, error } = await sb.from("messages")
+    .select("*")
+    .or(`sender_id.eq.${myProfile.id},recipient_id.eq.${myProfile.id}`)
+    .order("created_at", { ascending: false }).limit(1000);
+  if (error) { messagesReady = false; return; }
+  myMessages = data || [];
+}
+function myUnreadCount() {
+  if (!myProfile) return 0;
+  return myMessages.filter((m) => m.recipient_id === myProfile.id && !m.read_at).length;
+}
 async function refreshAll() {
   await loadPublic();
   await resolveMyProfile();
@@ -498,6 +527,23 @@ function renderHeader() {
       nav.classList.remove("has-admin");
       if (adminBtn) adminBtn.remove();
       if (view.kind === "admin") view = { kind: "gallery" };
+    }
+    // The MESSAGES tab exists only for signed-in members: hidden for
+    // visitors (no tab, no trace), with an unread-count badge when
+    // there is something waiting. The wide-screen nav widens its row
+    // via the has-messages class so every tab still fits its box.
+    const msgBtn = nav.querySelector('[data-view="messages"]');
+    if (msgBtn) {
+      const signedIn = !!user;
+      msgBtn.hidden = !signedIn;
+      nav.classList.toggle("has-messages", signedIn);
+      if (!signedIn && view.kind === "messages") view = { kind: "gallery" };
+      const badge = msgBtn.querySelector(".nav-badge");
+      if (badge) {
+        const unread = signedIn ? myUnreadCount() : 0;
+        badge.hidden = unread === 0;
+        badge.textContent = unread > 99 ? "99+" : String(unread);
+      }
     }
   }
   document.querySelectorAll("#main-nav .nav-btn").forEach((b) => {
@@ -1128,6 +1174,221 @@ async function removeFriendship(friendshipId) {
   }
 }
 
+/* ---------------- direct messages ----------------
+   Member-to-member private chat. A conversation is every message
+   row between the same pair of members; read_at (NULL = unread) is
+   set when the member a message was sent TO opens the thread. The
+   database shows each member ONLY their own rows (RLS) — the
+   founder gets no special read access, and message content never
+   appears anywhere else on the site. Until add-messages.sql runs,
+   messagesReady is false and all of this stays quietly out of the
+   way. While the Messages view is open, a 15-second timer quietly
+   reloads my rows; it never re-renders over a draft being typed. */
+function msgWhen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return sameDay ? time : `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} • ${time}`;
+}
+function conversationsOf() {
+  // myMessages is newest-first, so the first row met per member is
+  // that conversation's latest message.
+  const byOther = new Map();
+  for (const m of myMessages) {
+    const otherId = m.sender_id === myProfile.id ? m.recipient_id : m.sender_id;
+    let c = byOther.get(otherId);
+    if (!c) { c = { otherId, last: m, unread: 0 }; byOther.set(otherId, c); }
+    if (m.recipient_id === myProfile.id && !m.read_at) c.unread += 1;
+  }
+  return [...byOther.values()].sort((a, b) => new Date(b.last.created_at) - new Date(a.last.created_at));
+}
+function threadMessages(otherId) {
+  return myMessages
+    .filter((m) => (m.sender_id === myProfile.id && m.recipient_id === otherId)
+      || (m.sender_id === otherId && m.recipient_id === myProfile.id))
+    .slice()
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+}
+// The MESSAGE button for one member: on their Collectors card and on
+// their profile page. Never on your own card/profile, never for
+// signed-out visitors.
+function messageButtonHtml(p) {
+  if (!user || !messagesReady) return "";
+  if (myProfile && p.id === myProfile.id) return "";
+  return `<div class="friend-row"><button type="button" class="btn btn-pink btn-sm" data-action="msg-open" data-id="${p.id}">✉ MESSAGE</button></div>`;
+}
+function viewMessagesHtml() {
+  if (!user) {
+    return `<section class="block"><div class="center-note">
+      <p class="big">SIGN IN TO MESSAGE</p>
+      <p>Direct messages are members-only — private chats between two collectors.</p>
+      <button type="button" class="btn btn-pink" data-action="open-auth" data-mode="signin">SIGN IN</button>
+      <button type="button" class="btn btn-blue" data-action="open-auth" data-mode="join">JOIN THE COMMUNITY</button>
+    </div></section>`;
+  }
+  if (!myProfile) {
+    return `<section class="block"><div class="center-note">
+      <p class="big">ONE MORE STEP — YOUR COLLECTOR PROFILE</p>
+      <p>You're signed in. Create your collector profile and you can message any member of the community.</p>
+      <button type="button" class="btn btn-pink" data-action="create-profile">CREATE MY PROFILE</button>
+    </div></section>`;
+  }
+  if (!messagesReady) {
+    return `<section class="block">
+      <h2 class="view-title neon-text">MESSAGES</h2>
+      <p class="empty" style="padding:1.5rem 0">Messages are being switched on — check back shortly.</p>
+    </section>`;
+  }
+  if (msgThreadWith) {
+    const other = profileById(msgThreadWith);
+    if (!other) { msgThreadWith = null; return viewMessagesHtml(); }
+    const msgs = threadMessages(other.id);
+    return `<section class="block">
+      <div class="row-actions" style="margin:0 0 .75rem">
+        <button type="button" class="btn btn-ghost btn-sm" data-action="msg-back">← ALL MESSAGES</button>
+      </div>
+      <div class="shelf-head" style="margin-bottom:.5rem">
+        ${avatarHtml(other, "lg")}
+        <div class="grow">
+          <h2>${esc(other.display_name.toUpperCase())}</h2>
+          <p class="handle-line">@${esc(other.handle)}${other.city ? ` • ${esc(other.city)}` : ""}</p>
+        </div>
+        <div class="row-actions" style="margin-top:0">
+          <button type="button" class="btn btn-blue btn-sm" data-action="goto-profile" data-id="${other.id}">VIEW SHELF</button>
+        </div>
+      </div>
+      <div class="msg-thread">
+        ${msgs.length ? msgs.map((m) => {
+          const mine = m.sender_id === myProfile.id;
+          return `<div class="msg-bubble ${mine ? "mine" : "theirs"}"><span class="msg-body">${esc(m.body)}</span><span class="msg-when">${esc(msgWhen(m.created_at))}${mine && m.read_at ? " • Read" : ""}</span></div>`;
+        }).join("") : `<p class="empty">No messages yet — say hi to ${esc(other.display_name)}.</p>`}
+      </div>
+      <form id="msg-send-form" class="msg-send">
+        <label class="sr-only" for="msg-input" style="position:absolute;left:-9999px">Message ${esc(other.display_name)}</label>
+        <input id="msg-input" class="input" type="text" autocomplete="off" maxlength="2000" placeholder="Message ${esc(other.display_name)}…" value="${esc(msgDraft)}" />
+        <button type="submit" class="btn btn-pink">SEND</button>
+      </form>
+      <p class="form-note">Private — only you and ${esc(other.display_name)} can read this chat.</p>
+    </section>`;
+  }
+  const convs = conversationsOf();
+  const picker = profiles.filter((p) => p.id !== myProfile.id);
+  return `<section class="block">
+    <h2 class="view-title neon-text">MESSAGES</h2>
+    <p class="view-sub">Private chats with other collectors — only the two of you can ever read them.</p>
+    <div class="row-actions">
+      <button type="button" class="btn btn-pink" data-action="msg-new" aria-pressed="${msgPickerOpen}">✉ NEW MESSAGE</button>
+    </div>
+    ${msgPickerOpen ? `<div class="msg-list">
+      ${picker.length ? picker.map((p) => `<div class="friend-item">
+        ${avatarHtml(p)}
+        <span class="fr-main">
+          <button type="button" class="owner-link" data-action="goto-profile" data-id="${p.id}">${esc(p.display_name)}</button>
+          <span class="fr-handle">@${esc(p.handle)}</span>
+        </span>
+        <span class="row-actions" style="margin-top:0"><button type="button" class="btn btn-pink btn-sm" data-action="msg-open" data-id="${p.id}">MESSAGE</button></span>
+      </div>`).join("") : `<p class="empty">No other members yet.</p>`}
+    </div>` : ""}
+    ${convs.length ? `<div class="msg-list">
+      ${convs.map((c) => {
+        const o = profileById(c.otherId);
+        if (!o) return "";
+        const mine = c.last.sender_id === myProfile.id;
+        return `<button type="button" class="msg-row" data-action="msg-open" data-id="${o.id}" aria-label="Chat with ${esc(o.display_name)}">
+          ${avatarHtml(o)}
+          <span class="msg-main">
+            <span class="msg-name">${esc(o.display_name)} <span class="msg-handle">@${esc(o.handle)}</span></span>
+            <span class="msg-preview">${mine ? "You: " : ""}${esc(c.last.body)}</span>
+          </span>
+          <span class="msg-side">
+            <span class="msg-time">${esc(msgWhen(c.last.created_at))}</span>
+            ${c.unread ? `<span class="msg-unread">${c.unread > 99 ? "99+" : c.unread}</span>` : ""}
+          </span>
+        </button>`;
+      }).join("")}
+    </div>` : (msgPickerOpen ? "" : `<p class="empty" style="padding:1.5rem 0">No conversations yet — tap NEW MESSAGE and pick a collector to start your first chat.</p>`)}
+  </section>`;
+}
+async function markThreadRead(otherId) {
+  if (!myProfile || !otherId) return;
+  const unread = myMessages.filter((m) => m.sender_id === otherId && m.recipient_id === myProfile.id && !m.read_at);
+  if (!unread.length) return;
+  const nowIso = new Date().toISOString();
+  for (const m of unread) m.read_at = nowIso; // optimistic: badge clears at once
+  const { error } = await sb.from("messages")
+    .update({ read_at: nowIso })
+    .eq("recipient_id", myProfile.id)
+    .eq("sender_id", otherId)
+    .is("read_at", null);
+  if (error) { try { await loadMyMessages(); } catch { /* keep current data */ } }
+}
+async function openMessageThread(otherId) {
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  if (otherId === myProfile.id) return;
+  msgThreadWith = otherId;
+  msgPickerOpen = false;
+  msgDraft = "";
+  setView({ kind: "messages" });
+  window.scrollTo({ top: document.body.scrollHeight });
+  await markThreadRead(otherId);
+  renderHeader(); // the unread badge clears without a full re-render
+}
+async function sendMessage() {
+  if (busy || !myProfile || !msgThreadWith) return;
+  const input = $("#msg-input");
+  const body = (input ? input.value : msgDraft).trim();
+  if (!body) return;
+  busy = true;
+  try {
+    const { error } = await sb.from("messages").insert({
+      sender_id: myProfile.id,
+      recipient_id: msgThreadWith,
+      body,
+    });
+    if (error) throw error;
+    msgDraft = "";
+    await loadMyMessages();
+    render();
+    window.scrollTo({ top: document.body.scrollHeight });
+    const inp = $("#msg-input");
+    if (inp) inp.focus();
+  } catch (ex) {
+    setNotice(ex.message || "That message didn't go through — try again.");
+  } finally {
+    busy = false;
+  }
+}
+// The quiet 15-second refresh while the Messages view is open: reload
+// my rows; re-render only when something actually changed, and never
+// over a draft being typed (the badge still updates via the header).
+async function refreshMessagesTick() {
+  if (msgRefreshing || view.kind !== "messages" || !myProfile || document.hidden) return;
+  msgRefreshing = true;
+  try {
+    const before = `${myMessages.length}:${myUnreadCount()}:${myMessages[0]?.id || ""}`;
+    await loadMyMessages();
+    if (msgThreadWith) await markThreadRead(msgThreadWith);
+    const after = `${myMessages.length}:${myUnreadCount()}:${myMessages[0]?.id || ""}`;
+    if (before === after) return;
+    const typing = document.activeElement?.id === "msg-input" && msgDraft.trim().length > 0;
+    if (typing) { renderHeader(); return; }
+    const nearBottom = window.innerHeight + window.scrollY > document.body.scrollHeight - 320;
+    const y = window.scrollY;
+    render();
+    window.scrollTo({ top: nearBottom ? document.body.scrollHeight : y });
+  } catch { /* keep current data */ } finally {
+    msgRefreshing = false;
+  }
+}
+function wireMessages() {
+  if (msgTimer) { clearInterval(msgTimer); msgTimer = null; }
+  if (view.kind !== "messages" || !myProfile) return;
+  msgTimer = setInterval(refreshMessagesTick, 15000);
+}
+
 /* ---------------- collectors & public profile ---------------- */
 function viewCollectorsHtml() {
   const counts = new Map();
@@ -1155,6 +1416,7 @@ function viewCollectorsHtml() {
             </span>
           </button>
           ${friendButtonHtml(p)}
+          ${messageButtonHtml(p)}
         </article>`;
       }).join("")}
     </div>
@@ -1186,6 +1448,7 @@ function viewProfileHtml(collectorId) {
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
     ${friendButtonHtml(p)}
+    ${messageButtonHtml(p)}
     ${user && myProfile && p.id !== myProfile.id && adminReady ? `<div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="report-member" data-id="${p.id}">REPORT THIS MEMBER</button></div>` : ""}
     ${heatCarouselHtml()}
     ${upcomingCarouselHtml()}
@@ -1553,6 +1816,7 @@ function render() {
     else if (view.kind === "profile") app.innerHTML = viewProfileHtml(view.collectorId);
     else if (view.kind === "shelf") app.innerHTML = viewShelfHtml();
     else if (view.kind === "radar") app.innerHTML = viewRadarHtml();
+    else if (view.kind === "messages") app.innerHTML = viewMessagesHtml();
     else if (view.kind === "admin") app.innerHTML = (myProfile && myProfile.is_founder) ? viewAdminHtml() : viewGalleryHtml();
   } catch (e) {
     app.innerHTML = `<p class="empty">Something went sideways rendering this view.</p>`;
@@ -1609,6 +1873,17 @@ function render() {
   if (tradeCashEl) tradeCashEl.addEventListener("input", (e) => { tradeCash = e.target.value; });
   const tradeMsgEl = $("#trade-message");
   if (tradeMsgEl) tradeMsgEl.addEventListener("input", (e) => { tradeMessage = e.target.value; });
+  // Message send box: the draft is kept in state on every keystroke
+  // so the quiet 15s refresh can never eat a half-typed message.
+  const msgForm = $("#msg-send-form");
+  if (msgForm) {
+    msgForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      sendMessage();
+    });
+  }
+  const msgInput = $("#msg-input");
+  if (msgInput) msgInput.addEventListener("input", (e) => { msgDraft = e.target.value; });
   const inviteForm = $("#invite-form");
   if (inviteForm) {
     inviteForm.addEventListener("submit", (e) => {
@@ -1624,6 +1899,7 @@ function render() {
   wireRadar();
   wireHeat();
   wireUpcoming();
+  wireMessages();
 }
 async function copyReferralLink() {
   const input = $("#ref-link");
@@ -3278,6 +3554,9 @@ document.addEventListener("click", (e) => {
     case "friend-add": sendFriendRequest(id); break;
     case "friend-accept": acceptFriendship(id); break;
     case "friend-remove": removeFriendship(id); break;
+    case "msg-open": openMessageThread(id); break;
+    case "msg-back": msgThreadWith = null; msgDraft = ""; render(); break;
+    case "msg-new": msgPickerOpen = !msgPickerOpen; render(); break;
     case "radar-select": selectRadarEvent(id); break;
     case "radar-artist-pick": pickRadarArtist(el.dataset.name || ""); break;
     case "radar-clear-artist": radarArtist = ""; radarSelectedId = null; { const inp = $("#radar-artist"); if (inp) inp.value = ""; } refreshRadarResults(); break;
@@ -3291,7 +3570,11 @@ document.addEventListener("click", (e) => {
   }
 });
 document.querySelectorAll("#main-nav .nav-btn").forEach((b) => {
-  b.addEventListener("click", () => setView({ kind: b.dataset.view }));
+  b.addEventListener("click", () => {
+    // The MESSAGES tab always lands on the inbox, never a stale thread.
+    if (b.dataset.view === "messages") { msgThreadWith = null; msgDraft = ""; msgPickerOpen = false; }
+    setView({ kind: b.dataset.view });
+  });
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
 // Cover photos: if an image fails to load for any visitor (bad URL,

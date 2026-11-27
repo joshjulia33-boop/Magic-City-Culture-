@@ -104,6 +104,18 @@ nav.main-nav {
 @media (min-width: 560px) { nav.main-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (min-width: 1024px) { nav.main-nav { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media (min-width: 1024px) { nav.main-nav.has-admin { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+/* Signed-in members get a seventh tab (MESSAGES, unhidden by app.js);
+   the founder's nav then carries eight. The wide row widens to match
+   so every label still fits its box. */
+@media (min-width: 1024px) { nav.main-nav.has-messages { grid-template-columns: repeat(7, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { nav.main-nav.has-admin.has-messages { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
+.nav-btn[hidden] { display: none; }
+.nav-badge {
+  display: inline-block; min-width: 1.05rem; margin-left: 0.3rem; padding: 0 0.28rem;
+  border-radius: 999px; background: var(--blue); color: #000;
+  font-size: 10px; font-weight: 800; line-height: 1.5; vertical-align: 0.12em; text-align: center;
+}
+.nav-badge[hidden] { display: none; }
 .nav-btn {
   min-width: 0; overflow: hidden; white-space: nowrap; text-align: center;
   border-radius: 8px; padding: 0.45rem 0.2rem; line-height: 1.15;
@@ -330,6 +342,45 @@ h2.view-title { font-family: var(--font-display); font-size: 24px; margin: 0; }
 .friend-item .owner-link { font-size: 14px; font-weight: 700; color: var(--blue);
   background: none; border: none; padding: 0; text-decoration: underline dotted; text-underline-offset: 2px; }
 .friend-item .fr-handle { font-size: 12px; font-weight: 700; color: var(--dim); }
+
+/* ---------- direct messages ----------
+   Inbox rows are full-width buttons: avatar, name + last-message
+   preview (one line, ellipsis — never a mid-word spill), and a side
+   column with the time and the unread pill. The thread is a column of
+   bubbles capped at 82% width with break-anywhere wrapping, so no
+   message can push the page sideways at any phone width. */
+.msg-list { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
+.msg-row {
+  display: flex; align-items: center; gap: 0.65rem; width: 100%; min-width: 0;
+  text-align: left; color: var(--text); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg);
+}
+.msg-row .avatar { flex: none; }
+.msg-row .msg-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; }
+.msg-row .msg-name { font-size: 14px; font-weight: 700; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.msg-row .msg-handle { font-size: 12px; font-weight: 700; color: var(--dim); }
+.msg-row .msg-preview {
+  font-size: 12.5px; color: var(--dim); max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.msg-row .msg-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+.msg-row .msg-time { font-size: 11px; font-weight: 700; color: var(--dim); white-space: nowrap; }
+.msg-unread {
+  min-width: 1.3rem; text-align: center; padding: 0.08rem 0.38rem;
+  border-radius: 999px; background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 800; line-height: 1.35;
+}
+.msg-thread { display: flex; flex-direction: column; gap: 0.45rem; margin: 0.75rem 0 1rem; }
+.msg-bubble {
+  max-width: 82%; min-width: 0; padding: 0.5rem 0.7rem; border-radius: 14px;
+  font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere;
+}
+.msg-bubble .msg-when { display: block; margin-top: 0.25rem; font-size: 10.5px; font-weight: 700; opacity: 0.75; }
+.msg-bubble.theirs { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.msg-bubble.mine { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.msg-send { display: flex; gap: 0.5rem; align-items: stretch; }
+.msg-send .input { flex: 1; min-width: 0; }
+.msg-send .btn { flex: none; }
 
 /* orders */
 .order-list { display: grid; gap: 0.75rem; margin-top: 1rem; }

@@ -972,6 +972,86 @@ create trigger reports_guard_update
   for each row execute function public.guard_report_update();
 
 -- ----------------------------------------------------------------------------
+-- messages — direct messages between two members (see
+-- add-messages.sql). A conversation is every row between the same
+-- pair, oldest first; read_at marks when the recipient opened the
+-- thread (NULL = unread). A message is visible ONLY to its two
+-- members — there is no public or founder read path. Inserts are
+-- only as yourself and always start unread; the only update anyone
+-- can make is the recipient marking read_at (guard trigger below);
+-- there is no delete policy or grant: messages persist.
+-- ----------------------------------------------------------------------------
+create table if not exists public.messages (
+  id           uuid primary key default gen_random_uuid(),
+  sender_id    uuid not null references public.collectors (id) on delete cascade,
+  recipient_id uuid not null references public.collectors (id) on delete cascade,
+  body         text not null,
+  created_at   timestamptz not null default now(),
+  read_at      timestamptz,
+  check (sender_id <> recipient_id)
+);
+
+create index if not exists messages_recipient_idx
+  on public.messages (recipient_id, created_at desc);
+create index if not exists messages_sender_idx
+  on public.messages (sender_id, created_at desc);
+create index if not exists messages_conversation_idx
+  on public.messages (sender_id, recipient_id, created_at);
+
+alter table public.messages enable row level security;
+
+drop policy if exists "messages: parties read" on public.messages;
+create policy "messages: parties read"
+  on public.messages for select
+  to authenticated
+  using (
+    sender_id = public.current_collector_id()
+    or recipient_id = public.current_collector_id()
+  );
+
+drop policy if exists "messages: member sends" on public.messages;
+create policy "messages: member sends"
+  on public.messages for insert
+  to authenticated
+  with check (
+    sender_id = public.current_collector_id()
+    and read_at is null
+  );
+
+drop policy if exists "messages: recipient marks read" on public.messages;
+create policy "messages: recipient marks read"
+  on public.messages for update
+  to authenticated
+  using (recipient_id = public.current_collector_id())
+  with check (recipient_id = public.current_collector_id());
+
+-- Marking read is the only update there is: sender, recipient, body,
+-- and send date are frozen at send time.
+create or replace function public.guard_message_update()
+returns trigger
+language plpgsql
+as $$
+begin
+  if auth.uid() is null then
+    return new;
+  end if;
+  if new.id is distinct from old.id
+     or new.sender_id is distinct from old.sender_id
+     or new.recipient_id is distinct from old.recipient_id
+     or new.body is distinct from old.body
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Only the read state of a message can change.';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists messages_guard_update on public.messages;
+create trigger messages_guard_update
+  before update on public.messages
+  for each row execute function public.guard_message_update();
+
+-- ----------------------------------------------------------------------------
 -- Public views (curated projections — the only public read paths that touch
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
@@ -1063,6 +1143,9 @@ grant select, insert on public.offer_items to authenticated;
 grant select, insert, update, delete on public.friendships to authenticated;
 
 grant select, insert, update on public.reports to authenticated;
+
+-- messages: select/insert/update only — deliberately no delete grant.
+grant select, insert, update on public.messages to authenticated;
 
 grant select on public.public_profiles to anon, authenticated;
 grant select on public.gallery_comics to anon, authenticated;

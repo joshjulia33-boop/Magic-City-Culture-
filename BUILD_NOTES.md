@@ -777,3 +777,76 @@ behind it: everyone can see the site, only he controls everything.
 - **Remaining step**: run `supabase/add-admin.sql` in the Supabase
   SQL Editor (handled separately). Until then the live site behaves
   exactly as before.
+
+## Update — Direct Messages (2026-11-27)
+
+Joshua's next pick from the common-features list: direct messages —
+member-to-member private chat for everyone, so deals can be talked
+out before offers get sent. (The Market stays closed; messaging works
+regardless and touches no listing/price logic.)
+
+- **Schema** (`supabase/add-messages.sql`, folded into `schema.sql`):
+  one new table, **`messages`** (sender_id, recipient_id, body,
+  created_at, read_at — NULL = unread; sender ≠ recipient check;
+  indexes for the recipient inbox, the sender history, and thread
+  lookup). Privacy is enforced in the database: the SELECT policy
+  shows a row only to its two members — **the founder gets no special
+  read access to other people's messages**, and there is no public
+  path at all. INSERT is only as yourself and a new message must
+  start unread (no spoofed senders, no pre-marked reads). UPDATE is
+  open only to the member the message was sent TO, and
+  `guard_message_update` freezes everything except `read_at` — body,
+  sender, recipient, and send date can never be rewritten. There is
+  no DELETE policy and no delete grant: messages persist. The
+  migration is written against the LIVE schema: it touches no
+  existing view and no `stripe_*` column (the Stripe migration has
+  never run live — its columns exist only in this repo's schema.sql).
+- **Front end**: a **MESSAGES** tab in the nav, present in the HTML
+  but `hidden` until a member is signed in (visitors see no tab, and
+  `render()` bounces a signed-out messages view back to the gallery).
+  An unread-count badge rides on the tab. The wide-screen nav row
+  widens for it (`has-messages`: 7 columns; the founder's nav with
+  ADMIN too: 8). The view is an **inbox** — one row per conversation
+  (avatar, name/@handle, last-message preview, time, unread pill),
+  newest first — plus a **NEW MESSAGE** picker listing every other
+  member, and a **thread view**: bubbles oldest → newest (mine in
+  pink on the right, theirs on the left, with time and a "Read" mark
+  on mine once seen), a send box, and a note that only the two
+  members can read the chat. Opening a thread marks its incoming
+  messages read (one UPDATE … `read_at is null`, optimistically
+  applied so the badge clears at once). A **✉ MESSAGE** button on
+  every collector card and profile page (never your own, never for
+  visitors) jumps straight into that thread. While the Messages view
+  is open a 15-second timer quietly reloads my rows — following the
+  site's timer care: the interval is cleared and re-armed on every
+  render so it never stacks, it skips hidden tabs, it re-renders only
+  when something actually changed, and never over a draft being
+  typed (the draft lives in state on every keystroke; the header
+  badge still updates). Sending re-renders, scrolls to the newest
+  message, and refocuses the box.
+- **Graceful before the SQL runs**: if the messages table doesn't
+  exist yet, the tab shows "Messages are being switched on" and the
+  MESSAGE buttons stay hidden — the rest of the site is untouched.
+  Market stays closed; Stripe untouched; no values anywhere.
+- **Verified locally**: PGlite (real Postgres) — schema + migration
+  apply cleanly and idempotently, **24/24 checks** (both parties read
+  a conversation; a third member reads none of it; the FOUNDER cannot
+  read a conversation he isn't in; spoofed sender and pre-marked-read
+  inserts rejected; self-messages rejected; the sender cannot mark
+  their own message read; only the recipient can, and only `read_at`
+  moves — body/sender edits die on the guard trigger; no deletes; anon
+  locked out entirely). Headless Chrome with stubbed Supabase —
+  **75/75 checks** across member sessions at **360px, 390px and
+  412px**, a founder session, and a signed-out session: tab visible
+  only signed-in with the correct unread badge, inbox lists the
+  conversation with preview + unread pill, opening a thread clears
+  the badge via the mark-read PATCH, sending POSTs as the right
+  sender and renders the bubble, the picker and the collector-card
+  and profile MESSAGE buttons all land in the right thread, no
+  MESSAGE button on your own card or anywhere signed-out, the
+  founder's inbox shows only his own conversations, and at every
+  width: nav labels fit their boxes, no horizontal overflow, no
+  overlapping elements, no JS errors.
+- **Remaining step**: run `supabase/add-messages.sql` in the Supabase
+  SQL Editor (handled separately). Until then the live site behaves
+  exactly as before.
