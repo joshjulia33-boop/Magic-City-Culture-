@@ -11,15 +11,15 @@
    (coverUrl: null renders the site's placeholder tile), then push
    this single file. */
 window.MCC_HEAT = {
-  updatedAt: "2026-11-27T04:46:28Z",
+  updatedAt: "2026-11-27T05:02:50Z",
   sourceNote: "Ranked from actual sales across eBay sold, Whatnot, price guides and comic news.",
   items: [
     {
       rank: 1,
       title: "Absolute Batman",
       issue: "#1 (DC, 2024)",
-      note: "GoCollect's #1 most-sold comic of the past 10 days — the Absolute flagship keeps outselling everything else on the market.",
-      priceSignal: "Raw NM fair market value $332, high sale $350 — CovrPrice (week ending Nov 22, 2026)",
+      note: "GoCollect's #1 most-sold comic of the past 10 days and a Key Collector Hot 10 staple — the Absolute flagship outsells everything else on the market.",
+      priceSignal: "Top sale $670 graded 9.8, +63% at 9.8 — Key Collector Hot 10; raw NM FMV $332 — CovrPrice",
       trend: "heating",
       coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-2463692.jpg",
       link: "https://www.ebay.com/sch/i.html?_nkw=absolute+batman+%231&LH_Sold=1&LH_Complete=1"
@@ -28,38 +28,38 @@ window.MCC_HEAT = {
       rank: 2,
       title: "Chainkata",
       issue: "#1 — Ito Virgin Foil, Limited 444 (Image, 2026)",
-      note: "CovrPrice's #2 book of the week — the 444-copy Ito virgin foil is the chase cover of the year's biggest launch.",
-      priceSignal: "High sale $195 raw NM, fair market value $164 — CovrPrice (week ending Nov 22, 2026)",
+      note: "CovrPrice's #2 book on its newest Top 10 — the 444-copy Ito virgin foil is still the chase cover of the year's biggest launch.",
+      priceSignal: "High sale $195 raw NM, fair market value $164 — CovrPrice (newest weekly Top 10, Nov 24, 2026)",
       trend: "up",
       coverUrl: null,
       link: "https://www.ebay.com/sch/i.html?_nkw=chainkata+%231+ito+virgin+foil&LH_Sold=1&LH_Complete=1"
     },
     {
       rank: 3,
-      title: "Darkhawk",
-      issue: "#1 (Marvel, 1991)",
-      note: "GoCollect's #1 biggest mover (+982 spots) after Marvel trademark / live-action Darkhawk news — 9.8s were $100–$150 earlier this year.",
-      priceSignal: "CGC 9.8 sold $295–$310+ in mid-November 2026 — eBay sold via GoCollect",
-      trend: "up",
-      coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-4240988.jpg",
-      link: "https://www.ebay.com/sch/i.html?_nkw=darkhawk+%231+cgc+9.8&LH_Sold=1&LH_Complete=1"
-    },
-    {
-      rank: 4,
       title: "Star Trek",
       issue: "#2 — Photo Cover B (IDW, 2026)",
-      note: "CovrPrice's #1 book of the week — the Patrick Stewart photo cover is the one every Trek collector is hunting.",
-      priceSignal: "High sale $20 raw NM, fair market value $16 — CovrPrice (week ending Nov 22, 2026)",
+      note: "CovrPrice's #1 book on its newest Top 10 — the Patrick Stewart photo cover spiked to the top of the weekly sales chart.",
+      priceSignal: "High sale $20 raw NM, fair market value $16 — CovrPrice (newest weekly Top 10, Nov 24, 2026)",
       trend: "heating",
       coverUrl: "https://media.versedb.com/uploads/issues/star-trek-2026-2-1221907/star-trek-2026-2-1185527-197yx5o-cover_md.webp",
       link: "https://www.keycollectorcomics.com/issue/star-trek-2026-1-2-1,924489/"
     },
     {
+      rank: 4,
+      title: "Darkhawk",
+      issue: "#1 (Marvel, 1991)",
+      note: "GoCollect's #1 biggest mover (+982 spots, updated Nov 27) after Marvel trademark / live-action Darkhawk news — 9.8s were $100–$150 earlier this year.",
+      priceSignal: "CGC 9.8 sold $295 on Nov 17 and $310+ on Nov 11, 2026 — GoCollect / eBay sold",
+      trend: "up",
+      coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-4240988.jpg",
+      link: "https://www.ebay.com/sch/i.html?_nkw=darkhawk+%231+cgc+9.8&LH_Sold=1&LH_Complete=1"
+    },
+    {
       rank: 5,
       title: "Chainkata",
       issue: "#1 — Daniel Warren Johnson regular cover (Image, 2026)",
-      note: "Sold in massive numbers — Image rushed the 250,000-copy first printing back to press after it sold out at the distributor.",
-      priceSignal: "Raw NM fair market value $13; graded 9.8 high sale $100 — CovrPrice (week ending Nov 22, 2026)",
+      note: "CovrPrice's #5 book — five Chainkata editions fill its newest Top 10, and the regular cover keeps selling in massive numbers after the 250,000-copy first printing sold out.",
+      priceSignal: "Graded 9.8 high sale $100, raw NM fair market value $13 — CovrPrice (newest weekly Top 10, Nov 24, 2026)",
       trend: "heating",
       coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-5698084.jpg",
       link: "https://www.ebay.com/sch/i.html?_nkw=chainkata+%231&LH_Sold=1&LH_Complete=1"
@@ -68,51 +68,51 @@ window.MCC_HEAT = {
       rank: 6,
       title: "Marvel Super-Heroes Secret Wars",
       issue: "#8 (Marvel, 1984)",
-      note: "GoCollect's #2 most-sold book of the past 10 days — first black costume / symbiote suit, a key that never stays cold for long.",
-      priceSignal: "CGC 9.8 sales from $600 (eBay, Nov 12, 2026) to $1,952 (Heritage newsstand, Nov 3, 2026)",
+      note: "GoCollect's #2 most-sold book of the past 10 days — first black costume / symbiote suit, and the newsstand 9.8 is surging on Key Collector's Hot 10.",
+      priceSignal: "Newsstand CGC 9.8 top sale $2,126, +185% at 9.8 — Key Collector Hot 10",
       trend: "heating",
       coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-7603337.jpg",
       link: "https://www.ebay.com/sch/i.html?_nkw=secret+wars+%238+cgc+9.8&LH_Sold=1&LH_Complete=1"
     },
     {
       rank: 7,
-      title: "Absolute Batman",
-      issue: "#25 — Clay Mann & Nick Dragotta Foil, Cover L (DC, 2026)",
-      note: "The milestone-issue foil moved over a thousand copies in its peak week; volume is easing off that peak but still heavy.",
-      priceSignal: "1,227 copies sold in its peak week (+316%); raw fair market value $71 then, $40 now — CovrPrice",
-      trend: "cooling",
-      coverUrl: "https://media.versedb.com/uploads/issues/absolute-batman-2024-25-1216745/absolute-batman-2024-25-1182560-o6cewr-cover_md.webp",
-      link: "https://www.ebay.com/sch/i.html?_nkw=absolute+batman+%2325+foil&LH_Sold=1&LH_Complete=1"
+      title: "Inanna: The Name She Lost",
+      issue: "#1 — Serena Bell 1:20 variant (Vault, 2026)",
+      note: "New entry: CovrPrice's #3 book of the week — the Serena Bell 1:20 incentive was a mega-hit on release and demand is still spiking its aftermarket price.",
+      priceSignal: "High sale $106 raw NM, fair market value $29 — CovrPrice (newest weekly Top 10, Nov 24, 2026)",
+      trend: "up",
+      coverUrl: null,
+      link: "https://www.ebay.com/sch/i.html?_nkw=inanna+the+name+she+lost+%231+serena+bell&LH_Sold=1&LH_Complete=1"
     },
     {
       rank: 8,
-      title: "Challenges of Doom: Doctor Strange",
-      issue: "#1 — Peach Momoko Momo-Tone variant (Marvel, 2026)",
-      note: "Misprint heat: Emperor Doom #1 art was printed inside this book and copies were recalled — weekly sales jumped +301%.",
-      priceSignal: "High sale $20 raw NM+, fair market value $23 — CovrPrice",
+      title: "Legion of Super-Heroes",
+      issue: "#Ashcan — 2026 SDCC Preview (DC, 2026)",
+      note: "New entry: copies sold jumped +475% after collectors spotted Bat-Lad's first cover appearance hidden on the wraparound back cover — on two straight CovrPrice Top 10s.",
+      priceSignal: "High sale $40 raw NM+, fair market value $22 — CovrPrice (week ending Nov 22, 2026)",
       trend: "up",
       coverUrl: null,
-      link: "https://www.ebay.com/sch/i.html?_nkw=challenges+of+doom+doctor+strange+%231+momoko&LH_Sold=1&LH_Complete=1"
+      link: "https://www.ebay.com/sch/i.html?_nkw=legion+of+super-heroes+ashcan+sdcc+2026&LH_Sold=1&LH_Complete=1"
     },
     {
       rank: 9,
       title: "Afterlife with Archie",
       issue: "#1 — Francesco Francavilla Cover A (Archie, 2013)",
-      note: "Disney+ series casting news (series set for Halloween 2027) pulled this 2013 horror key back onto the charts.",
-      priceSignal: "High sale $34 raw NM, fair market value $29 — CovrPrice (week ending Nov 22, 2026)",
+      note: "CovrPrice's #4 book this week — Disney+ series casting news (series set for Halloween 2027) keeps pulling this 2013 horror key up the chart.",
+      priceSignal: "High sale $34 raw NM, fair market value $29 — CovrPrice (newest weekly Top 10, Nov 24, 2026)",
       trend: "up",
       coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-2992097.jpg",
       link: "https://www.ebay.com/sch/i.html?_nkw=afterlife+with+archie+%231&LH_Sold=1&LH_Complete=1"
     },
     {
       rank: 10,
-      title: "Criminal",
-      issue: "#1 (Marvel/Icon, 2006)",
-      note: "Amazon's Criminal series trailer plus the announced facsimile reprints doubled this Brubaker/Phillips key's weekly sales.",
-      priceSignal: "High sale $33 raw FN, fair market value $17 — CovrPrice",
+      title: "The Uncanny X-Men",
+      issue: "#121 — Newsstand (Marvel, 1979)",
+      note: "New entry: first full Alpha Flight appearance is surging on Ryan Reynolds Alpha Flight talk — Key Collector's Hot 10 shows its biggest grade gain at +72%.",
+      priceSignal: "Top sale $775 graded 9.8, +72% at 9.6 — Key Collector Hot 10; raw VF FMV $84 — CovrPrice",
       trend: "up",
-      coverUrl: "https://upload.wikimedia.org/wikipedia/en/4/45/Criminal_1.png",
-      link: "https://www.ebay.com/sch/i.html?_nkw=criminal+%231+brubaker&LH_Sold=1&LH_Complete=1"
+      coverUrl: null,
+      link: "https://www.ebay.com/sch/i.html?_nkw=uncanny+x-men+%23121+alpha+flight&LH_Sold=1&LH_Complete=1"
     }
   ]
 };
