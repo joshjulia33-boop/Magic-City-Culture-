@@ -1121,3 +1121,48 @@ Pink, the other member's Electric Blue.
 - **Remaining step**: run `supabase/add-message-style.sql` in the
   Supabase SQL Editor (handled separately). Until then the live
   site behaves exactly as before.
+
+## Update — Famous-titles backdrop (2026-11-27)
+
+Joshua's aesthetic ask: famous Marvel/DC comic titles worked into
+the site's backdrop. A second fixed backdrop layer now sits WITH
+the logo artwork, never instead of it.
+
+- **What it is**: 24 iconic title NAMES — Avengers, Spider-Man,
+  X-Men, Iron Man, Captain America, Thor, Hulk, Black Panther,
+  Doctor Strange, Daredevil, Fantastic Four, Wolverine, Deadpool,
+  Guardians of the Galaxy, Justice League, Batman, Superman,
+  Wonder Woman, The Flash, Aquaman, Green Lantern, Teen Titans,
+  Suicide Squad, Shazam — rendered as pure text in the masthead's
+  Archivo Black lettering with its dark outline, scattered across
+  the whole viewport. **Text only, deliberately**: no official
+  logos, symbols, emblems or images — the names in comic lettering,
+  same treatment as the masthead itself. No new image files, no
+  hotlinks, no database step.
+- **Layering**: `#titles-backdrop` in index.html sits directly
+  after `#site-backdrop`; both are `position: fixed; z-index: 0`,
+  so document order paints the titles ABOVE the faded artwork and
+  BELOW the z-index 1 content (header z-30, modals z-50 untouched).
+  The layer is `overflow: hidden; pointer-events: none` at
+  **opacity 0.07** — it whispers; cards, text and forms read
+  exactly as before.
+- **Composition**: deterministic, in `web/titles.js` (the logo.js
+  pattern — a data file index.html loads; it renders its own
+  spans). Each title carries a centre point (% of viewport), a
+  size class (s/m/l/xl, viewport-scaled via clamp() between phone
+  and desktop, rem caps 2.1–6rem), a rotation in −6°..+6°, and a
+  tone — neon pink / electric blue / soft white, balanced 8/8/8.
+  Long titles bleed off the edges and are clipped by the layer,
+  which is part of the collage look. Static — no animation.
+- **Verified**: headless Chrome, signed-out AND signed-in
+  (founder) at 360/390/412/430px with stubbed Supabase —
+  **156/156 checks**: layer present with all 24 titles as text,
+  computed opacity 0.07, tones 8/8/8, Archivo Black stack, sizes
+  in band, zero images/SVGs in the layer, elementFromPoint over a
+  nav tab hits the tab (never a title), real clicks switch views
+  and open a book detail over the layer, gallery/masthead render
+  unchanged, no horizontal overflow, no JS errors. Desktop and
+  phone screenshots eyeballed: titles read as a faint collage
+  behind the hero and panels; nothing competes with content.
+  (Harness: `hidden_files/titles-test/` in the website goal
+  workspace.)
