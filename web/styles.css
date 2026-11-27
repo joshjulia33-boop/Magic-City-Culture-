@@ -750,6 +750,15 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .want-title { font-weight: 700; overflow-wrap: break-word; }
 .want-match { display: block; font-size: 12px; font-weight: 700; color: var(--dim); margin-top: 0.15rem; overflow-wrap: break-word; }
 .want-match.hit { color: var(--blue); }
+/* my stats: bar breakdown rows on My Shelf */
+.stat-group { margin-top: 0.9rem; }
+.stat-group-title { font-size: 11px; font-weight: 800; letter-spacing: 0.2em; color: var(--blue); margin: 0 0 0.35rem; }
+.stat-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.3rem 0; }
+.stat-label { flex: 0 1 38%; min-width: 0; overflow-wrap: break-word; font-weight: 700; font-size: 13px; }
+.stat-bar { flex: 1; height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.stat-fill { display: block; height: 100%; background: var(--pink); border-radius: 99px; }
+.stat-fill.blue { background: var(--blue); }
+.stat-count { flex: none; font-weight: 800; font-size: 13px; min-width: 1.6rem; text-align: right; }
 .poll-panel { margin-top: 1.25rem; }
 .poll-question {
   font-family: "Archivo Black", "Arial Black", sans-serif;

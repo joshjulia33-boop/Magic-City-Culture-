@@ -2322,6 +2322,78 @@ function wantListPanelHtml() {
     ${rows}
   </div>`;
 }
+/* ---------- my stats (queue #2, feature 10) ----------
+   A private stats panel on My Shelf for the signed-in member's
+   OWN shelf: headline counts, their own paid/value totals, and
+   bar breakdowns by publisher, cover type, top signers and
+   status. Wishlist books are NOT owned, so every count and total
+   here runs over the owned shelf only (status != wishlist); the
+   BY STATUS breakdown covers all my books so the wishlist and
+   sold rows still show. Everything is computed from data already
+   loaded (myComics + myValues) — the values shown are the
+   member's own private numbers, on their own shelf only, exactly
+   like the values panel above it. No database step. */
+const byCountDesc = (a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]));
+function statRowsHtml(pairs, fillClass = "") {
+  if (!pairs.length) return "";
+  const max = Math.max(...pairs.map(([, n]) => n));
+  return pairs.map(([label, n]) => `<div class="stat-row">
+    <span class="stat-label">${esc(label)}</span>
+    <span class="stat-bar"><span class="stat-fill ${fillClass}" style="width:${Math.max(4, Math.round((n / max) * 100))}%"></span></span>
+    <span class="stat-count">${n}</span>
+  </div>`).join("");
+}
+function statGroupHtml(title, pairs, fillClass = "") {
+  if (!pairs.length) return "";
+  return `<div class="stat-group"><p class="stat-group-title">${title}</p>${statRowsHtml(pairs, fillClass)}</div>`;
+}
+function myStatsPanelHtml() {
+  if (!myProfile || !myComics.length) return "";
+  const owned = myComics.filter((c) => c.status !== "wishlist");
+  let paid = 0, value = 0;
+  for (const c of owned) {
+    const v = myValues.get(c.id);
+    if (v) { paid += v.purchase_price_cents || 0; value += v.current_value_cents || 0; }
+  }
+  const countBy = (items, keyOf) => {
+    const m = new Map();
+    for (const it of items) {
+      const k = keyOf(it);
+      if (k) m.set(k, (m.get(k) || 0) + 1);
+    }
+    return [...m.entries()].sort(byCountDesc);
+  };
+  const byPublisher = countBy(owned, (c) => (c.publisher || "").trim() || "Publisher not listed");
+  const typeCounts = new Map();
+  for (const c of owned) for (const t of coverTypesOf(c)) typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+  const byCoverType = [...typeCounts.entries()].sort(byCountDesc);
+  const bySigners = countBy(owned, (c) => (c.signed_by || "").trim()).slice(0, 5);
+  const STATUS_LABELS = { owned: "On my shelf", for_sale: "For sale", wishlist: "Wishlist", sold: "Sold" };
+  const byStatus = countBy(myComics, (c) => STATUS_LABELS[c.status] || c.status);
+  return `<div class="values-panel stats-panel">
+    <p class="vp-tag">📊 MY STATS — PRIVATE, JUST FOR YOU</p>
+    <div class="values-grid">
+      <div><p class="num">${owned.length}</p><p class="cap">Books on your shelf</p></div>
+      <div><p class="num">${esc(money(paid))}</p><p class="cap">Total paid</p></div>
+      <div><p class="num blue">${esc(money(value))}</p><p class="cap">Current value</p></div>
+    </div>
+    <div class="values-grid" style="margin-top:.75rem">
+      <div><p class="num">${owned.filter((c) => c.is_signed).length}</p><p class="cap">Signed</p></div>
+      <div><p class="num">${owned.filter((c) => isGraded(c.grade)).length}</p><p class="cap">Graded</p></div>
+      <div><p class="num">${owned.filter((c) => c.has_remark).length}</p><p class="cap">Remarqued</p></div>
+    </div>
+    <div class="values-grid" style="margin-top:.75rem">
+      <div><p class="num">${owned.filter((c) => c.cover_url).length}</p><p class="cap">With cover art</p></div>
+      <div><p class="num">${owned.filter((c) => c.has_coa).length}</p><p class="cap">With COA</p></div>
+      <div><p class="num">${myComics.length - owned.length}</p><p class="cap">On your want list</p></div>
+    </div>
+    ${statGroupHtml("BY PUBLISHER", byPublisher)}
+    ${statGroupHtml("BY COVER TYPE", byCoverType)}
+    ${statGroupHtml("TOP SIGNERS", bySigners, "blue")}
+    ${statGroupHtml("BY STATUS", byStatus)}
+    <p class="vp-note">Counts and totals cover the books on your shelf — wishlist books aren't owned, so they only appear in BY STATUS and in your Want List above.</p>
+  </div>`;
+}
 async function markNotificationsSeen() {
   if (!myProfile || !notificationsReady || busy) return;
   busy = true;
@@ -2412,6 +2484,7 @@ function viewShelfHtml() {
     </div>
     ${notificationsPanelHtml()}
     ${wantListPanelHtml()}
+    ${myStatsPanelHtml()}
     ${MARKET_OPEN ? payoutsPanelHtml(p) : ""}
     ${friendsPanelHtml(p)}
     ${followingPanelHtml(p)}

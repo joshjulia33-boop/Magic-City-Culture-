@@ -1435,3 +1435,26 @@ normalised matches named with both owners; wrong-issue, own-copy,
 their-wishlist and sold copies all correctly NOT matches; exactly
 2 want events in Notifications counted as new; empty-state
 explainer with no rows and no events; overflow, zero JS errors).
+
+## My Stats (queue #2, feature 10 — 2026-11-27)
+
+Front-end only, NO database step. A "📊 MY STATS" panel on My
+Shelf (under the Want List) computed from data already loaded:
+headline grids (books on shelf, total paid, current value;
+signed, graded, remarqued; with cover art, with COA, on your want
+list) plus bar breakdowns BY PUBLISHER, BY COVER TYPE (a
+multi-type cover counts under each of its types), TOP SIGNERS
+(top 5) and BY STATUS. Wishlist books are NOT owned, so counts
+and totals run over the owned shelf only — including the member's
+own paid/value totals, which stay private on their own shelf
+exactly like the values panel above; BY STATUS covers every book
+so wishlist and sold rows still reconcile. Long publisher and
+artist names wrap inside their rows. The panel renders nothing
+on an empty shelf. Market stays closed; no values anywhere
+outside the owner's own shelf.
+Tests: Chrome 37/37 @360/390/412/430 (exact headline numbers
+with a wishlist book's $999 value correctly excluded, publisher /
+cover-type / signer bars with widths, Jim Lee counted once
+despite a second wishlist copy, status rows summing to all
+books, 40-char unbroken names with no overflow at 360px, hidden
+on an empty shelf, zero JS errors).
