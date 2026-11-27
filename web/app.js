@@ -207,6 +207,7 @@ let detailCommentsFor = null;    // comic id detailComments belongs to
 let commentsReady = true;        // false until the book_comments table exists (add-comments.sql)
 let allFollows = [];             // follows rows — public, drives the counts (add-follows.sql)
 let followsReady = true;         // false until the follows table exists (add-follows.sql)
+let avatarReady = true;          // false until collectors.avatar_url exists (add-avatar.sql)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -282,7 +283,15 @@ function claudeInviteText(link) {
 /* ---------------- shared fragments ---------------- */
 function avatarHtml(p, size = "md") {
   const initial = (p.display_name || "?").trim()[0]?.toUpperCase() || "?";
-  return `<span class="avatar ${size}" style="background:${esc(p.avatar_color || "#FF2E88")}" aria-hidden="true">${esc(initial)}</span>`;
+  // A member with a profile photo (see ../supabase/add-avatar.sql)
+  // shows it in place of the initial — the photo covers the circle,
+  // and if it ever fails to load it removes itself and the initial
+  // underneath shows again. No photo → the coloured initial, exactly
+  // as before. avatar_url is simply absent until that SQL runs.
+  const photo = p.avatar_url
+    ? `<img class="avatar-photo" src="${esc(p.avatar_url)}" alt="" loading="lazy" decoding="async" onerror="this.remove()" />`
+    : "";
+  return `<span class="avatar ${size}" style="background:${esc(p.avatar_color || "#FF2E88")}" aria-hidden="true">${esc(initial)}${photo}</span>`;
 }
 function badgesHtml(c) {
   let h = "";
@@ -450,6 +459,10 @@ async function resolveMyProfile() {
   const { data, error } = await sb.from("collectors").select("*").eq("auth_user_id", user.id).maybeSingle();
   if (error) throw error;
   myProfile = data || null;
+  // Until add-avatar.sql runs, the collectors row has no avatar_url
+  // key at all — the Edit Profile photo section then stays hidden and
+  // every avatar stays the coloured initial.
+  avatarReady = !myProfile || "avatar_url" in myProfile;
 }
 async function loadMine() {
   myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
@@ -2383,11 +2396,118 @@ function openProfileForm() {
       <div class="field"><label class="label" for="pf-bio">Bio</label>
         <textarea class="input" id="pf-bio" rows="3" maxlength="280" placeholder="What do you collect?">${esc(p?.bio || "")}</textarea></div>
       <div class="field"><span class="label">Avatar colour</span>${swatchesHtml("pf-color", p?.avatar_color || "#FF2E88")}</div>
+      ${p && avatarReady ? `<section class="profile-photo" aria-labelledby="pf-photo-label">
+        <span class="label" id="pf-photo-label">Profile photo</span>
+        <div class="pf-photo-head">
+          <span id="pf-photo-preview">${avatarHtml(p, "lg")}</span>
+          <p class="form-note" style="margin:0">Your photo shows everywhere you appear — your card, your profile, the header, friend lists, messages and comments. No photo? Your initial above stays.</p>
+        </div>
+        <div class="photo-actions">
+          <label class="btn btn-pink photo-btn" for="pf-photo-camera">📷 Take a photo</label>
+          <label class="btn btn-blue photo-btn" for="pf-photo-pick">Pick a photo</label>
+        </div>
+        <input class="photo-input" id="pf-photo-camera" type="file" accept="image/*" capture="environment" />
+        <input class="photo-input" id="pf-photo-pick" type="file" accept="image/*" />
+        ${p.avatar_url ? `<button type="button" class="btn btn-ghost btn-sm" id="pf-photo-remove" style="margin-top:.6rem">REMOVE PHOTO</button>` : ""}
+        <p class="scan-status" id="pf-photo-status" role="status" hidden></p>
+      </section>` : ""}
       <p class="form-error" id="pf-error"></p>
       <button type="submit" class="btn btn-pink" style="width:100%">${p ? "SAVE PROFILE" : "START MY SHELF"}</button>
     </form>`);
   wireSwatches(document);
+  wireProfilePhoto();
   $("#profile-form").addEventListener("submit", onProfileSubmit);
+}
+/* ---------------- profile photo ----------------
+   The photo uploads the moment it's picked (not on form save): it
+   goes to the 'avatars' bucket under the member's own collector-id
+   folder — the storage twin of the covers pattern — then the public
+   URL lands on collectors.avatar_url, and every place the member
+   appears picks it up through avatarHtml(). The file is converted
+   through the same canvas helper the cover identifier uses, so
+   phone formats like HEIC become a plain JPEG and big camera shots
+   shrink before upload. REMOVE clears avatar_url back to null and
+   the coloured initial returns. Until add-avatar.sql runs the whole
+   section stays out of the form (avatarReady). */
+let profilePhotoBusy = false;
+function setPfPhotoStatus(text) {
+  const s = $("#pf-photo-status");
+  if (s) { s.hidden = false; s.textContent = text; }
+}
+async function uploadAvatarPhoto(file) {
+  let blob = file;
+  let contentType = file.type || "image/jpeg";
+  try {
+    const dataUrl = await photoDataUrl(file);
+    if (dataUrl) {
+      blob = await (await fetch(dataUrl)).blob();
+      contentType = "image/jpeg";
+    }
+  } catch { /* the browser couldn't convert it — send the raw file */ }
+  const path = `${myProfile.id}/avatar-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const { error } = await sb.storage.from("avatars").upload(path, blob, { upsert: true, contentType });
+  if (error) throw error;
+  const { data } = sb.storage.from("avatars").getPublicUrl(path);
+  return data.publicUrl;
+}
+async function onProfilePhotoChosen(file) {
+  if (!file || !myProfile || profilePhotoBusy) return;
+  profilePhotoBusy = true;
+  setPfPhotoStatus("Uploading your photo…");
+  try {
+    const url = await uploadAvatarPhoto(file);
+    const { error } = await sb.from("collectors").update({ avatar_url: url }).eq("id", myProfile.id);
+    if (error) throw error;
+    myProfile = { ...myProfile, avatar_url: url };
+    const pub = profiles.find((x) => x.id === myProfile.id);
+    if (pub) pub.avatar_url = url;
+    const prev = $("#pf-photo-preview");
+    if (prev) prev.innerHTML = avatarHtml(myProfile, "lg");
+    setPfPhotoStatus("Photo saved — it's live everywhere you appear.");
+    renderHeader();
+    render();
+  } catch {
+    setPfPhotoStatus("That photo didn't save — try again in a moment.");
+  } finally {
+    profilePhotoBusy = false;
+  }
+}
+async function onProfilePhotoRemove() {
+  if (!myProfile || profilePhotoBusy) return;
+  profilePhotoBusy = true;
+  setPfPhotoStatus("Removing your photo…");
+  try {
+    const { error } = await sb.from("collectors").update({ avatar_url: null }).eq("id", myProfile.id);
+    if (error) throw error;
+    myProfile = { ...myProfile, avatar_url: null };
+    const pub = profiles.find((x) => x.id === myProfile.id);
+    if (pub) pub.avatar_url = null;
+    const prev = $("#pf-photo-preview");
+    if (prev) prev.innerHTML = avatarHtml(myProfile, "lg");
+    const btn = $("#pf-photo-remove");
+    if (btn) btn.remove();
+    setPfPhotoStatus("Photo removed — your initial is back.");
+    renderHeader();
+    render();
+  } catch {
+    setPfPhotoStatus("That didn't work — try again in a moment.");
+  } finally {
+    profilePhotoBusy = false;
+  }
+}
+function wireProfilePhoto() {
+  const cam = $("#pf-photo-camera");
+  const pick = $("#pf-photo-pick");
+  if (!cam || !pick) return;
+  const onPick = (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (file) onProfilePhotoChosen(file);
+  };
+  cam.addEventListener("change", onPick);
+  pick.addEventListener("change", onPick);
+  const remove = $("#pf-photo-remove");
+  if (remove) remove.addEventListener("click", onProfilePhotoRemove);
 }
 async function onProfileSubmit(e) {
   e.preventDefault();

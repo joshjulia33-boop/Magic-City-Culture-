@@ -114,6 +114,19 @@ host — no build step, no server of its own.
   (`supabase/add-follows.sql`): follows are public reads, and a
   member can only ever follow or unfollow as themselves. No values
   are involved.
+- **Profile pictures** — Edit Profile has a **Profile photo** section
+  (📷 Take a photo / Pick a photo, same controls as book covers).
+  The photo uploads at once to the public `avatars` storage bucket
+  under the member's own collector-id folder, and its URL lands on
+  `collectors.avatar_url`; from then on the photo replaces the
+  coloured initial everywhere that member appears — collector cards,
+  profile pages, the header chip, friend lists, message threads,
+  comment rows, the featured strip. **Remove photo** clears it back
+  to the initial. Enforced in the database
+  (`supabase/add-avatar.sql`): storage policies let a member write
+  only inside their own folder, and the founder-feature guard keeps
+  the founder from changing another member's photo. Until that SQL
+  runs, the section stays hidden and initials work as before.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).

@@ -102,6 +102,11 @@ create table if not exists public.collectors (
   city                  text not null default '',
   bio                   text not null default '',
   avatar_color          text not null default '#FF2E88',
+  -- Profile photo (see add-avatar.sql): a public storage URL in the
+  -- 'avatars' bucket, or NULL for the coloured-initial avatar. Public
+  -- by design — it shows everywhere the member appears, so it rides
+  -- public_profiles below.
+  avatar_url            text,
   is_founder            boolean not null default false,
   -- The founder's front-page pick (see add-admin.sql). Publicly read
   -- through public_profiles; changeable ONLY by the founder, on any
@@ -231,6 +236,7 @@ begin
        or new.city is distinct from old.city
        or new.bio is distinct from old.bio
        or new.avatar_color is distinct from old.avatar_color
+       or new.avatar_url is distinct from old.avatar_url
        or new.is_founder is distinct from old.is_founder
        or new.show_values_publicly is distinct from old.show_values_publicly
        or new.referred_by is distinct from old.referred_by
@@ -1187,7 +1193,8 @@ select id, display_name, handle, city, bio, avatar_color,
        is_founder, show_values_publicly, created_at,
        referred_by,
        stripe_payouts_enabled as payouts_enabled,
-       is_featured
+       is_featured,
+       avatar_url
 from public.collectors;
 
 -- The shared gallery: every book with its owner's public identity, plus
@@ -1331,5 +1338,52 @@ create policy "covers: delete own files"
   to authenticated
   using (
     bucket_id = 'covers'
+    and (storage.foldername(name))[1] = public.current_collector_id()::text
+  );
+
+-- ============================================================================
+-- OPTIONAL: profile photo storage (see add-avatar.sql).
+-- A public-read 'avatars' bucket, mirroring 'covers': uploads must
+-- live under a folder named with the uploader's collector id:
+-- avatars/<collector_id>/<file>, enforced by the policies below.
+-- ============================================================================
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+drop policy if exists "avatars: public read" on storage.objects;
+create policy "avatars: public read"
+  on storage.objects for select
+  to anon, authenticated
+  using (bucket_id = 'avatars');
+
+drop policy if exists "avatars: upload own folder" on storage.objects;
+create policy "avatars: upload own folder"
+  on storage.objects for insert
+  to authenticated
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = public.current_collector_id()::text
+  );
+
+drop policy if exists "avatars: manage own folder" on storage.objects;
+create policy "avatars: manage own folder"
+  on storage.objects for update
+  to authenticated
+  using (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = public.current_collector_id()::text
+  )
+  with check (
+    bucket_id = 'avatars'
+    and (storage.foldername(name))[1] = public.current_collector_id()::text
+  );
+
+drop policy if exists "avatars: delete own files" on storage.objects;
+create policy "avatars: delete own files"
+  on storage.objects for delete
+  to authenticated
+  using (
+    bucket_id = 'avatars'
     and (storage.foldername(name))[1] = public.current_collector_id()::text
   );

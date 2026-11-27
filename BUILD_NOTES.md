@@ -978,3 +978,73 @@ that shares no state with friendship.
 - **Remaining step**: run `supabase/add-follows.sql` in the Supabase
   SQL Editor (handled separately). Until then the live site behaves
   exactly as before.
+
+## Update — Profile picture upload (2026-11-27)
+
+The last pick from the comparison list: a member's own photo in
+place of the coloured initial, everywhere they appear.
+
+- **Database** (`supabase/add-avatar.sql`, also folded into
+  schema.sql): `collectors.avatar_url` (text, nullable) projected
+  through `public_profiles` — recreated from its **current live
+  definition** (…, referred_by, is_featured) with `avatar_url`
+  appended and **no `stripe_*` reference anywhere** (the Stripe
+  migration has never run live). The founder-feature guard
+  (`guard_collector_featured`) is recreated with `avatar_url` in its
+  frozen-column list, so a founder featuring another member still
+  cannot touch their photo; a member editing their OWN profile is
+  unaffected by the guard and sets/clears their own `avatar_url`
+  through the normal owner policy.
+- **Storage**: a dedicated public-read **`avatars` bucket**,
+  mirroring the `covers` pattern exactly — uploads live under
+  `avatars/<collector_id>/<file>` and the four storage policies
+  (public read; insert/update/delete only inside your own folder,
+  keyed on `(storage.foldername(name))[1] =
+  public.current_collector_id()::text`) ship in the same migration.
+- **Front end**: Edit Profile gains a **PROFILE PHOTO** section —
+  current photo/initial preview, **📷 Take a photo** and **Pick a
+  photo** buttons using the same capture/accept pattern as book
+  covers. The picked file is converted through the cover
+  identifier's canvas helper (HEIC and other phone formats become a
+  plain JPEG, big camera shots shrink), uploads at once to the
+  member's own avatars folder, and the public URL lands on
+  `collectors.avatar_url`. `avatarHtml()` — the one renderer behind
+  collector cards, profile pages, the header chip, friend lists,
+  message inbox/threads, comment authors, admin rows and the
+  featured strip — shows the photo (round, `object-fit: cover`,
+  same sizes as the initial; a failed load removes the img and the
+  initial underneath shows again). **REMOVE PHOTO** clears
+  `avatar_url` back to null and the initial returns everywhere.
+  Join-flow profile creation is unchanged (the photo is an
+  Edit Profile surface; a brand-new profile has no collector id to
+  key a storage folder on yet).
+- **Graceful before the SQL runs**: if the collectors row has no
+  `avatar_url` key, the photo section stays out of Edit Profile and
+  every avatar stays the coloured initial — the rest of the site is
+  untouched. Market stays closed; Stripe untouched; no values
+  anywhere.
+- **Verified locally**: PGlite (real Postgres) — schema +
+  migration apply cleanly and idempotently (the migration was
+  tested against the simulated LIVE shape: live `public_profiles`,
+  no `avatar_url`, no stripe columns), **24/24 checks** (member
+  sets/clears their own `avatar_url`; `public_profiles` exposes it;
+  founder can still feature but cannot change another member's
+  `avatar_url` or any other field; member cannot move their own
+  featured flag; the `avatars` bucket is public with all four
+  policies; uploads/deletes land only inside the owner's folder —
+  founder included in the lock-out; anon reads photos but writes
+  nothing). Headless Chrome with stubbed Supabase + stubbed storage
+  — **78/78 checks** across member sessions at **360px, 390px and
+  412px**, signed-out sessions at 390px and 360px, and a degraded
+  run with the column missing: the pick-photo flow uploads to
+  `avatars/<collector id>/…`, PATCHes `avatar_url`, and the photo
+  renders in the form preview, the header chip, the collector card
+  and the profile page; REMOVE PHOTO nulls it and the initial
+  returns everywhere while another member's photo is untouched;
+  signed-out visitors see photos and initials correctly; degraded
+  shows no section and initials throughout. At every width: no
+  horizontal overflow, the modal fits inside the viewport, no JS
+  errors.
+- **Remaining step**: run `supabase/add-avatar.sql` in the Supabase
+  SQL Editor (handled separately). Until then the live site behaves
+  exactly as before.
