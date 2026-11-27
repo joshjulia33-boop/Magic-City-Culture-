@@ -709,6 +709,21 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .grail-week .view-sub { overflow-wrap: break-word; }
 .grail-week-grid { margin-top: 0.75rem; }
 /* newest collectors welcome strip: pill chips that wrap on phones */
+.onthisday-strip { margin-top: 1.25rem; }
+.onthisday-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 4px solid var(--blue); border-radius: 12px;
+  padding: 0.9rem 1rem; margin-top: 0.7rem;
+}
+.onthisday-when {
+  color: var(--blue); font-weight: 800; font-size: 12px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+}
+.onthisday-headline {
+  font-family: "Archivo Black", "Arial Black", sans-serif;
+  font-size: 19px; margin-top: 0.25rem; overflow-wrap: break-word;
+}
+.onthisday-detail { color: var(--dim); margin-top: 0.3rem; overflow-wrap: break-word; }
 .newest-strip { margin-top: 1.25rem; }
 .newest-strip .view-sub { overflow-wrap: break-word; }
 .newest-row { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.7rem; }

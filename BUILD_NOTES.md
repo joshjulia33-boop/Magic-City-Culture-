@@ -1310,3 +1310,23 @@ rotating weekly — the front-page companion to the Wall of Grails.
   zero profiles; one chip for one profile; a 40-character unbroken
   name + handle causes no horizontal overflow; zero JS errors. No
   database step; market stays closed.
+
+## On this day in comics (queue #2, feature 5 — 2026-11-27)
+
+Static dataset web/onthisday.js (window.MCC_ON_THIS_DAY: dataUpdated,
+sourceNote, entries keyed "MM-DD" -> {year, headline, detail}), loaded
+by index.html like the other data files. 26 entries covering all 12
+months. Sourcing rules (also in the file header): real comic history
+only; every date verified on the web (publisher announcements,
+Wikipedia, on-sale records) before inclusion; ON-SALE dates, not
+cover dates; a date known only to the month is LEFT OUT rather than
+given a fake day (e.g. Batman: The Killing Joke, March 1988, is
+deliberately absent). Gallery strip "ON THIS DAY IN COMICS"
+(onThisDayHtml/onThisDayPick in app.js) sits under the newest-
+collectors strip: today's entry when one exists, otherwise the
+nearest date's entry (day-of-year distance, wrapping the year end),
+labelled with its date. Hidden when the dataset is missing/empty.
+No database step; no values; market stays closed.
+Tests: 41/41 headless Chrome @360/390/412/430 (dataset integrity —
+26 entries, 12 months, valid keys/facts; pick logic for today /
+nearest / year-wrap; graceful absence; overflow; zero JS errors).

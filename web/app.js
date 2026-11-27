@@ -851,6 +851,45 @@ function newestCollectorsHtml() {
     </div>
   </section>`;
 }
+/* ---------- on this day in comics (queue #2, feature 5) ----------
+   Static dataset in web/onthisday.js (window.MCC_ON_THIS_DAY, entries
+   keyed "MM-DD"). The strip shows today's entry when one exists,
+   otherwise the nearest date's entry (wrapping the year end),
+   labelled with its date. Hidden when the dataset is missing/empty. */
+const ON_THIS_DAY_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+function onThisDayPick(now = new Date()) {
+  const data = window.MCC_ON_THIS_DAY;
+  if (!data || !data.entries) return null;
+  const keys = Object.keys(data.entries);
+  if (!keys.length) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  const todayKey = `${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  if (data.entries[todayKey]) return { key: todayKey, entry: data.entries[todayKey], isToday: true };
+  const dayOfYear = (m, d) => Math.floor((Date.UTC(2024, m - 1, d) - Date.UTC(2024, 0, 0)) / 86400000);
+  const todayDoy = dayOfYear(now.getMonth() + 1, now.getDate());
+  let best = null;
+  for (const key of keys) {
+    const [m, d] = key.split("-").map(Number);
+    const diff = Math.abs(dayOfYear(m, d) - todayDoy);
+    const wrapped = Math.min(diff, 366 - diff);
+    if (!best || wrapped < best.dist) best = { key, entry: data.entries[key], dist: wrapped };
+  }
+  return best ? { key: best.key, entry: best.entry, isToday: false } : null;
+}
+function onThisDayHtml() {
+  const pick = onThisDayPick();
+  if (!pick) return "";
+  const [m, d] = pick.key.split("-").map(Number);
+  const when = pick.isToday ? "Today" : `${ON_THIS_DAY_MONTHS[m - 1]} ${d}`;
+  return `<section class="onthisday-strip">
+    <h2 class="heat-title">🗓️ ON THIS DAY IN COMICS</h2>
+    <div class="onthisday-card">
+      <p class="onthisday-when">${esc(when)} • ${pick.entry.year}</p>
+      <p class="onthisday-headline">${esc(pick.entry.headline)}</p>
+      <p class="onthisday-detail">${esc(pick.entry.detail)}</p>
+    </div>
+  </section>`;
+}
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -899,6 +938,7 @@ function viewGalleryHtml() {
   ${grailOfWeekHtml()}
   ${wallOfGrailsHtml()}
   ${newestCollectorsHtml()}
+  ${onThisDayHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
   <section>
