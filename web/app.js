@@ -165,6 +165,9 @@ let radarGeoTried = false;       // radar: automatic geolocation attempted once 
 let radarArtist = "";            // radar: artist filter text (picked from suggestions or typed)
 let radarSelectedId = null;      // radar: event id selected from a blip or the list
 let radarMsg = "";               // radar: small status line under the location controls
+let heatIndex = 0;               // heat monitor: slide currently showing
+let heatTimer = null;            // heat monitor: auto-cycle interval (cleared every render)
+let heatPaused = false;          // heat monitor: pause auto-cycle on hover/touch
 let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
@@ -503,6 +506,7 @@ function viewGalleryHtml() {
       </div>
     </div>
   </section>
+  ${heatCarouselHtml()}
   <section>
     <div class="toolbar">
       <label class="sr-only" for="gallery-search" style="position:absolute;left:-9999px">Search the gallery</label>
@@ -1063,6 +1067,7 @@ function viewProfileHtml(collectorId) {
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
     ${friendButtonHtml(p)}
+    ${heatCarouselHtml()}
     ${books.length ? `<div class="grid">${books.map(galleryCardHtml).join("")}</div>` : `<p class="empty">No books on this shelf yet.</p>`}
   </section>`;
 }
@@ -1291,6 +1296,7 @@ function render() {
     });
   }
   wireRadar();
+  wireHeat();
 }
 async function copyReferralLink() {
   const input = $("#ref-link");
@@ -2639,6 +2645,101 @@ function wireRadar() {
   }
 }
 
+/* ---------------- heat monitor ----------------
+   "🔥 HEAT MONITOR — HOTTEST COMICS RIGHT NOW": a Top 10 carousel
+   of the hottest comics on the open market, shown at the top of the
+   gallery and on every collector profile. Data is the curated static
+   list in heat.js (window.MCC_HEAT) — public market data about comics
+   in general (sold prices, sales velocity), never any member's
+   private values. No database step. If heat.js is missing or empty
+   the section renders nothing at all; a missing/failed cover falls
+   back to the placeholder tile. The carousel advances by updating
+   DOM classes in place (never a full render), so it can't steal the
+   gallery search box's focus while someone types. */
+function heatItems() {
+  const d = window.MCC_HEAT;
+  if (!d || !Array.isArray(d.items)) return [];
+  return d.items
+    .filter((it) => it && it.title)
+    .slice()
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99))
+    .slice(0, 10);
+}
+function heatCarouselHtml() {
+  const items = heatItems();
+  if (!items.length) return "";
+  if (heatIndex >= items.length) heatIndex = 0;
+  const d = window.MCC_HEAT;
+  let updated = "";
+  if (d && d.updatedAt) {
+    const dt = new Date(d.updatedAt);
+    if (!isNaN(dt)) {
+      updated = dt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+  }
+  const trendLabel = { up: "▲ TRENDING UP", heating: "🔥 HEATING UP", cooling: "▼ COOLING OFF" };
+  const slides = items.map((it, i) => {
+    const name = `${it.title || ""} ${it.issue || ""}`.trim();
+    const cover = it.coverUrl
+      ? `<img class="heat-img" src="${esc(it.coverUrl)}" alt="${esc(name)} cover" loading="lazy" onerror="this.remove()" />`
+      : "";
+    return `<a class="heat-slide${i === heatIndex ? " active" : ""}" href="${esc(it.link || "#")}" target="_blank" rel="noopener">
+      <span class="heat-cover">
+        <span class="heat-ph"><span class="heat-ph-title">${esc(it.title || "")}</span><span class="heat-ph-issue">${esc(it.issue || "")}</span></span>
+        ${cover}
+        <span class="heat-badge">${it.rank === 1 ? "#1 HOTTEST" : "#" + esc(String(it.rank || i + 1))}</span>
+      </span>
+      <span class="heat-info">
+        <span class="heat-name">${esc(name)}</span>
+        <span class="heat-note">${esc(it.note || "")}</span>
+        <span class="heat-price">${esc(it.priceSignal || "")}</span>
+        <span class="heat-trend ${esc(it.trend || "heating")}">${trendLabel[it.trend] || trendLabel.heating}</span>
+      </span>
+    </a>`;
+  }).join("");
+  const dots = items.map((it, i) =>
+    `<button type="button" class="heat-dot${i === heatIndex ? " active" : ""}" data-action="heat-goto" data-idx="${i}" aria-label="Show hot comic ${i + 1}"></button>`).join("");
+  return `<section class="heat">
+    <h2 class="heat-title">🔥 HEAT MONITOR — HOTTEST COMICS RIGHT NOW</h2>
+    ${updated ? `<p class="heat-updated">Updated ${esc(updated)}</p>` : ""}
+    <div class="heat-carousel">
+      <div class="heat-track">
+        ${slides}
+        <button type="button" class="heat-arrow prev" data-action="heat-prev" aria-label="Previous hot comic">‹</button>
+        <button type="button" class="heat-arrow next" data-action="heat-next" aria-label="Next hot comic">›</button>
+      </div>
+      <div class="heat-dots">${dots}</div>
+    </div>
+    ${d && d.sourceNote ? `<p class="heat-source">${esc(d.sourceNote)}</p>` : ""}
+  </section>`;
+}
+function showHeatSlide(i) {
+  document.querySelectorAll(".heat-carousel").forEach((root) => {
+    root.querySelectorAll(".heat-slide").forEach((s, k) => s.classList.toggle("active", k === i));
+    root.querySelectorAll(".heat-dot").forEach((s, k) => s.classList.toggle("active", k === i));
+  });
+}
+function heatStep(dir) {
+  const n = heatItems().length;
+  if (!n) return;
+  heatIndex = (((heatIndex + dir) % n) + n) % n;
+  showHeatSlide(heatIndex);
+}
+function wireHeat() {
+  if (heatTimer) { clearInterval(heatTimer); heatTimer = null; }
+  const root = document.querySelector(".heat-carousel");
+  if (!root) return;
+  showHeatSlide(heatIndex);
+  root.addEventListener("mouseenter", () => { heatPaused = true; });
+  root.addEventListener("mouseleave", () => { heatPaused = false; });
+  root.addEventListener("touchstart", () => { heatPaused = true; }, { passive: true });
+  root.addEventListener("touchend", () => { setTimeout(() => { heatPaused = false; }, 2500); }, { passive: true });
+  heatTimer = setInterval(() => {
+    if (heatPaused || document.hidden) return;
+    heatStep(1);
+  }, 4000);
+}
+
 /* ---------------- events & init ---------------- */
 document.addEventListener("click", (e) => {
   const backdrop = e.target.closest?.("[data-action-backdrop]");
@@ -2663,6 +2764,9 @@ document.addEventListener("click", (e) => {
       });
       break;
     case "gallery-filter": galleryFilter = el.dataset.filter; render(); break;
+    case "heat-prev": heatStep(-1); break;
+    case "heat-next": heatStep(1); break;
+    case "heat-goto": heatIndex = Number(el.dataset.idx) || 0; showHeatSlide(heatIndex); break;
     case "shelf-filter": shelfFilter = el.dataset.filter; render(); break;
     case "open-detail": openDetail(id); break;
     case "detail-photo": {

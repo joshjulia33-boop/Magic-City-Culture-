@@ -410,3 +410,96 @@ geocoding "Orlando" re-centers (MegaCon ~<1 mi, Supercon ~204 mi);
 no horizontal overflow; no JS exceptions. Signed-out run: radar +
 16 events render from the Miami default, no alerts, no shelf
 markers, no exceptions.
+
+## Update — Heat Monitor (2026-11-26)
+
+**Owner's design**: a "🔥 HEAT MONITOR — HOTTEST COMICS RIGHT NOW"
+carousel on everyone's pages — the Top 10 hottest comics on the open
+market, cycling automatically, refreshed on a regular cadence. It
+shows PUBLIC market data about comics in general (sold prices and
+sales velocity). It never shows any member's private values, paid
+prices, or shelf totals — the values-privacy rule is untouched.
+
+**Data** — new static file `web/heat.js`, NO database step:
+
+```js
+window.MCC_HEAT = {
+  updatedAt: "<ISO 8601 timestamp of this edition>",
+  sourceNote: "Ranked from actual sales across eBay sold, Whatnot, price guides and comic news.",
+  items: [
+    { rank, title, issue, note, priceSignal, trend, coverUrl, link } // exactly 10, ranks 1–10
+  ]
+};
+```
+
+Field rules:
+- `rank`: 1–10, unique. Rank 1 renders the "#1 HOTTEST" badge.
+- `title`: series title only (e.g. "Absolute Batman"). `issue`:
+  issue number plus the variant/edition descriptor and publisher/year
+  (e.g. "#25 — Clay Mann & Nick Dragotta Foil, Cover L (DC, 2026)").
+- `note`: one line on WHY it is hot, grounded in the research
+  (sales counts, % moves, news driving demand) — no hype without a
+  sales fact behind it.
+- `priceSignal`: a recent SOLD-price signal — a range or typical
+  sold price / fair market value — **with the source named in the
+  string** (e.g. "High sale $195 raw NM, FMV $164 — CovrPrice").
+  Asking prices never count; only completed sales.
+- `trend`: exactly one of `up` | `heating` | `cooling`.
+- `coverUrl`: a cover image URL or `null`. **Image rules**: only
+  stable, long-term cover-archive URLs (League of Comic Geeks S3,
+  VerseDB media, Wikimedia, publisher CDNs). **Verify every URL
+  returns HTTP 200 with an image content-type (curl -sI) before
+  including it.** Never hotlink an expiring or signed URL, never an
+  eBay/Whatnot listing photo. The URL must show the exact edition
+  the entry names; if no exact verifiable cover exists, use `null`
+  — the site renders its placeholder tile. (Edition 1: 8 verified
+  covers, 2 nulls — Chainkata #1 Ito Virgin Foil and Challenges of
+  Doom: Doctor Strange #1 Momoko Momo-Tone.)
+- `link`: a source page for the book's market — its eBay SOLD
+  search (`LH_Sold=1&LH_Complete=1`) or the guide page the price
+  signal came from. Tapping a cover opens it in a new tab.
+
+**Ranking rules**: rank by REAL SALES HEAT, not hype — copies
+actually selling (velocity/volume) and the prices they actually
+sold at, blended across every reachable outlet: eBay sold
+listings, GoCollect's sales-volume index and biggest movers,
+CovrPrice weekly Top 10s, Key Collector, Whatnot heat, and comic
+news (adaptation announcements etc.) only where the news is moving
+real sales. A book with buzz but no sales does not make the list.
+
+**REFRESH PROCEDURE** (mechanical): 1) Research a fresh Top 10
+under the ranking rules above. 2) Rewrite `web/heat.js` — replace
+the whole `items` array and set `updatedAt` to the current ISO
+timestamp; keep the exact field shape and the `sourceNote`. 3)
+Verify every new `coverUrl` per the image rules (or `null`).
+4) Push the single file `web/heat.js` to GitHub main (the site
+redeploys from the push). No other file changes, no database step.
+
+**Front end** — the same component (`heatCarouselHtml()` /
+`wireHeat()` in app.js) renders at the top of the GALLERY view
+(under the hero) and on every collector PROFILE page (above their
+books grid). It auto-cycles every 4 seconds by toggling DOM classes
+in place — never a full render, so it cannot steal the gallery
+search box's focus — and pauses on hover/touch. Prev/next arrows
+and dots jump manually (delegated `heat-prev` / `heat-next` /
+`heat-goto` actions). Each slide: rank flame badge, cover (or
+placeholder tile), title + issue, why-hot line, sold-price signal,
+trend chip. Degradation: if `heat.js` fails to load or has no
+items, the section is omitted entirely; a null or failed cover
+quietly leaves the placeholder tile (the img removes itself on
+error). index.html loads `heat.js` after `signings.js`.
+
+**Verification** — headless Chrome at 390px against a stubbed
+Supabase client (origin served from disk via Fetch interception,
+same harness as Friends/Radar): **21/21 checks pass** — section on
+the gallery AND on a collector profile; 10 slides + 10 dots;
+header, "Updated" label from `updatedAt`, and sourceNote render;
+slide 1 active with the "#1 HOTTEST" badge; the 8 verified covers
+load and the 2 null-cover entries (ranks 2 and 8) show placeholder
+tiles; every slide links out in a new tab and tapping the active
+cover opens its source link; the carousel auto-cycles at ~4s;
+next/prev arrows and dots jump correctly; a `cooling` trend chip
+renders; no horizontal overflow (scrollWidth = 390); no JS errors.
+Degradation run with `heat.js` returning 404: no heat section, the
+gallery renders normally, no JS errors.
+
