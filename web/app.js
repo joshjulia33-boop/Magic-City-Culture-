@@ -789,6 +789,44 @@ function wallOfGrailsHtml() {
     <div class="grid">${sorted.map(galleryCardHtml).join("")}</div>
   </section>`;
 }
+/* ---------------- grail of the week ----------------
+   One member's grail in the spotlight, rotating weekly. The pick is
+   a pure function of the calendar week and the current grail set:
+   grails are sorted into a fixed order (by collector, then oldest
+   first) and the ISO week stamp picks the slot, so the same book
+   holds the spotlight all week and another takes over when the week
+   turns — no database field, no founder action, nothing to schedule.
+   Distinct from FEATURED BY THE FOUNDER (the founder's own picks)
+   and from the WALL OF GRAILS (every grail at once). Renders nothing
+   until at least one member has set a grail; before add-grail.sql,
+   is_grail is absent from every row and it renders nothing too. */
+function isoWeekStamp(d) {
+  // ISO-8601 week stamp (year * 100 + week): consecutive weeks always
+  // differ, including across New Year.
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = (date.getUTCDay() + 6) % 7;            // Monday = 0
+  date.setUTCDate(date.getUTCDate() - day + 3);      // this week's Thursday
+  const year = date.getUTCFullYear();
+  const first = new Date(Date.UTC(year, 0, 4));
+  const fday = (first.getUTCDay() + 6) % 7;
+  first.setUTCDate(first.getUTCDate() - fday + 3);   // the year's first Thursday
+  const week = 1 + Math.round((date - first) / (7 * 24 * 3600 * 1000));
+  return year * 100 + week;
+}
+function grailOfWeekHtml() {
+  const grails = gallery.filter((c) => c.is_grail);
+  if (!grails.length) return "";
+  const sorted = [...grails].sort((a, b) =>
+    String(a.collector_id).localeCompare(String(b.collector_id))
+    || String(a.created_at || "").localeCompare(String(b.created_at || "")));
+  const pick = sorted[isoWeekStamp(new Date()) % sorted.length];
+  const owner = profileById(pick.collector_id);
+  return `<section class="grail-week">
+    <h2 class="heat-title">🏆 GRAIL OF THE WEEK</h2>
+    <p class="view-sub">One member's grail in the spotlight — a new one takes over every week.${owner ? ` This week it's <strong>${esc(owner.display_name)}</strong>'s grail.` : ""}</p>
+    <div class="grid grail-week-grid">${galleryCardHtml(pick)}</div>
+  </section>`;
+}
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -834,6 +872,7 @@ function viewGalleryHtml() {
     </div>
   </section>
   ${featuredStripHtml()}
+  ${grailOfWeekHtml()}
   ${wallOfGrailsHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}

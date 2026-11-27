@@ -699,6 +699,15 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .featured-strip { margin-top: 1.25rem; }
 .grail-wall { margin-top: 1.25rem; }
 .grail-wall .view-sub { overflow-wrap: break-word; }
+/* grail of the week: a gold-framed spotlight panel — visually apart
+   from the founder's featured strip (unframed) and the wall (a grid). */
+.grail-week {
+  margin-top: 1.25rem; border: 2px solid #f5c542; border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(245, 197, 66, 0.12), rgba(245, 197, 66, 0.02));
+  padding: 0.9rem 0.9rem 1rem; box-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
+}
+.grail-week .view-sub { overflow-wrap: break-word; }
+.grail-week-grid { margin-top: 0.75rem; }
 .admin-row {
   display: flex; align-items: center; gap: 0.65rem; width: 100%; text-align: left;
   border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.55rem;

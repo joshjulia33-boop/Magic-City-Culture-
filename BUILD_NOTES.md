@@ -1256,3 +1256,35 @@ Every member names ONE book their grail; the Gallery carries a
   `select count(*) from public.comics where is_grail;`. Until then
   the live site behaves exactly as before. Market stays closed;
   Stripe untouched.
+
+## Update — Grail of the Week (2026-11-27)
+
+One member's grail in a gold-framed spotlight on the Gallery,
+rotating weekly — the front-page companion to the Wall of Grails.
+
+- **Front end only** (`grailOfWeekHtml()` in `web/app.js`): sits on
+  the Gallery between FEATURED BY THE FOUNDER and the WALL OF
+  GRAILS, clearly labelled "🏆 GRAIL OF THE WEEK" and framed in gold
+  (`.grail-week` in `web/styles.css`) so it never reads as the
+  founder's picks. The spotlight card is the standard
+  `galleryCardHtml` — owner name on the card, no prices or values.
+- **Rotation**: a pure function of the calendar week and the grail
+  set — no database field, no founder action, nothing scheduled.
+  Grails are sorted into a fixed order (collector id, then oldest
+  first) and an ISO-8601 week stamp (`isoWeekStamp()`: ISO year ×
+  100 + week) modulo the grail count picks the slot, so the same
+  book holds the spotlight all week and another takes over when the
+  week turns. Adding/removing a grail reshuffles future picks, never
+  the current week's mid-week.
+- **Hidden states**: renders nothing when no member has set a grail,
+  and nothing before `add-grail.sql` (rows have no `is_grail` key) —
+  the same graceful pattern as the Wall.
+- **Verified**: headless Chrome at 360/390/412/430px with stubbed
+  Supabase data mirroring live shapes — **46/46 checks**: with three
+  grails the spotlight card is exactly the ISO-week pick (cross-checked
+  against an independent week-stamp implementation) at every width,
+  the sub-line names the owner, the gold frame is computed, the Wall
+  still renders below; hidden with zero grails and with
+  pre-migration rows; a single grail is always the pick; no
+  horizontal overflow; zero JS errors. Market stays closed; Stripe
+  untouched; no database step.
