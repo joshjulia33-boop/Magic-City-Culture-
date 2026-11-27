@@ -14,7 +14,7 @@
    (coverUrl: null renders the site's placeholder tile), then push
    this single file. */
 window.MCC_UPCOMING = {
-  updatedAt: "2026-11-27T05:37:52Z",
+  updatedAt: "2026-11-27T13:05:02Z",
   sourceNote: "Release dates and details from publisher solicitations and announcements (DC, Marvel, Image, IDW), Previews listings and comic news. Dates can shift — each slide links to its source.",
   items: [
     {
@@ -96,6 +96,17 @@ window.MCC_UPCOMING = {
     },
     {
       rank: 8,
+      title: "Absolute Black Canary",
+      issue: "#1 (DC, 2027)",
+      publisher: "DC",
+      releaseDate: "2027-01-20",
+      dateLabel: "Releases Jan 20, 2027",
+      whyHot: "New entry: a brand-new Absolute Universe #1 from DC's January 2027 solicits — Pornsak Pichetshote & Belén Ortega spin Dinah Lance out of Absolute Green Arrow, with a TK foil variant.",
+      coverUrl: null,
+      link: "https://bleedingcool.com/comics/official-dc-comics-january-2027-full-solicits-absolute-black-canary/"
+    },
+    {
+      rank: 9,
       title: "Batman: Reign of Assassins",
       issue: "#1 (DC, 2027)",
       publisher: "DC",
@@ -106,7 +117,7 @@ window.MCC_UPCOMING = {
       link: "https://www.dc.com/blog/2026-11-11/dc-announces-batman-reign-of-assassins"
     },
     {
-      rank: 9,
+      rank: 10,
       title: "Teenage Mutant Ninja Turtles: The First Ronin",
       issue: "#1 (IDW, 2027)",
       publisher: "IDW",
@@ -115,17 +126,6 @@ window.MCC_UPCOMING = {
       whyHot: "Stan Sakai & Soo Lee's feudal-Japan spiritual predecessor to The Last Ronin — 52 pages, 11 covers up to a 1:100 Ito foil.",
       coverUrl: "https://shop.thirdeyecomics.com/cdn/shop/files/idw-publishing-comic-books-teenage-mutant-ninja-turtles-the-first-ronin-1-cover-a-lee-release-date-03-17-2027-82771403640400111-prh-82771403640400111-1268804116_1300x.jpg",
       link: "https://bleedingcool.com/comics/scoop-the-full-official-solicits-for-tmnt-first-ronin-1-for-2027/"
-    },
-    {
-      rank: 10,
-      title: "Creature Corps",
-      issue: "#1 (Image, 2026)",
-      publisher: "Image",
-      releaseDate: "2026-12-02",
-      dateLabel: "Releases Dec 2, 2026",
-      whyHot: "Curt Pires (Fireborn, Lost Fantasy) & Jok launch a giant 64-page #1 with 15 covers — Jae Lee, Tyler Kirkham — plus a companion trading-card game.",
-      coverUrl: "https://cdn.imagecomics.com/assets/i/releases/1133745/creature-corps-1_1c89324772.jpg",
-      link: "https://imagecomics.com/solicitations/solicitations-for-dec-2026"
     }
   ]
 };
