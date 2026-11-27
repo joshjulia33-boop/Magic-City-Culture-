@@ -107,6 +107,13 @@ create table if not exists public.collectors (
   -- by design — it shows everywhere the member appears, so it rides
   -- public_profiles below.
   avatar_url            text,
+  -- Message bubble style (see add-message-style.sql): the member's
+  -- chosen chat-bubble colour (a hex string like '#ff2e88') and
+  -- lettering (a front-end font key), NULL = the site defaults. Public
+  -- by design — the style shows to everyone the member messages, so
+  -- both ride public_profiles below, like avatar_url.
+  msg_color             text,
+  msg_font              text,
   is_founder            boolean not null default false,
   -- The founder's front-page pick (see add-admin.sql). Publicly read
   -- through public_profiles; changeable ONLY by the founder, on any
@@ -237,6 +244,8 @@ begin
        or new.bio is distinct from old.bio
        or new.avatar_color is distinct from old.avatar_color
        or new.avatar_url is distinct from old.avatar_url
+       or new.msg_color is distinct from old.msg_color
+       or new.msg_font is distinct from old.msg_font
        or new.is_founder is distinct from old.is_founder
        or new.show_values_publicly is distinct from old.show_values_publicly
        or new.referred_by is distinct from old.referred_by
@@ -1194,7 +1203,9 @@ select id, display_name, handle, city, bio, avatar_color,
        referred_by,
        stripe_payouts_enabled as payouts_enabled,
        is_featured,
-       avatar_url
+       avatar_url,
+       msg_color,
+       msg_font
 from public.collectors;
 
 -- The shared gallery: every book with its owner's public identity, plus

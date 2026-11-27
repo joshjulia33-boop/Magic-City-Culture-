@@ -208,6 +208,7 @@ let commentsReady = true;        // false until the book_comments table exists (
 let allFollows = [];             // follows rows — public, drives the counts (add-follows.sql)
 let followsReady = true;         // false until the follows table exists (add-follows.sql)
 let avatarReady = true;          // false until collectors.avatar_url exists (add-avatar.sql)
+let msgStyleReady = true;        // false until collectors.msg_color/msg_font exist (add-message-style.sql)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -463,6 +464,10 @@ async function resolveMyProfile() {
   // key at all — the Edit Profile photo section then stays hidden and
   // every avatar stays the coloured initial.
   avatarReady = !myProfile || "avatar_url" in myProfile;
+  // Same for the message-style columns (add-message-style.sql): until
+  // they exist, the Edit Profile Message style section stays hidden
+  // and every bubble wears the site defaults.
+  msgStyleReady = !myProfile || ("msg_color" in myProfile && "msg_font" in myProfile);
 }
 async function loadMine() {
   myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
@@ -1374,6 +1379,60 @@ function followingPanelHtml(p) {
   </section>` : ""}`;
 }
 
+/* ---------------- message bubble styles ----------------
+   Every member picks the colour and lettering of their OWN chat
+   bubbles (Edit Profile → Message style), stored on their profile as
+   msg_color (a hex string) + msg_font (one of the keys below), both
+   public through public_profiles — a bubble wears its SENDER's style
+   in every thread. NULL / unset = the site defaults: your own
+   bubbles Neon Pink, the other member's Electric Blue. Until
+   add-message-style.sql runs the fields simply don't exist and the
+   defaults apply everywhere. */
+const MSG_COLORS = [
+  { hex: "#FF2E88", name: "Neon Pink" },
+  { hex: "#2EA6FF", name: "Electric Blue" },
+  { hex: "#FF3B30", name: "Red" },
+  { hex: "#9B5CFF", name: "Purple" },
+  { hex: "#22D3EE", name: "Cyan" },
+  { hex: "#34D399", name: "Green" },
+  { hex: "#FF8A3D", name: "Orange" },
+  { hex: "#FFD23D", name: "Yellow" },
+];
+const MSG_FONTS = [
+  { key: "site", label: "Site" },
+  { key: "comic", label: "Comic" },
+  { key: "marker", label: "Marker" },
+  { key: "hand", label: "Handwritten" },
+  { key: "type", label: "Typewriter" },
+  { key: "serif", label: "Serif" },
+  { key: "heavy", label: "Heavy" },
+];
+const MSG_DEFAULT_MINE = "#FF2E88";
+const MSG_DEFAULT_THEIRS = "#2EA6FF";
+function msgHexOk(v) {
+  return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v.trim());
+}
+function msgStyleOf(profile, mine) {
+  const color = msgHexOk(profile?.msg_color)
+    ? profile.msg_color.trim().toUpperCase()
+    : (mine ? MSG_DEFAULT_MINE : MSG_DEFAULT_THEIRS);
+  const font = MSG_FONTS.some((f) => f.key === profile?.msg_font) ? profile.msg_font : "site";
+  return { color, font };
+}
+// The bubble's inline custom properties: the solid colour for the
+// border, a dark tint of it for the fill (over the site's bubble
+// background colour), and a soft glow. Text always stays the site's
+// normal light text on that dark fill, so any colour stays readable.
+function msgBubbleVars(color) {
+  const n = parseInt(color.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `--msgc:${color};--msgbg:rgba(${r},${g},${b},0.16);--msgs:rgba(${r},${g},${b},0.35)`;
+}
+function msgBubbleHtml(m, mine, other) {
+  const st = msgStyleOf(mine ? myProfile : other, mine);
+  return `<div class="msg-bubble ${mine ? "mine" : "theirs"} msg-font-${st.font}" style="${msgBubbleVars(st.color)}"><span class="msg-body">${esc(m.body)}</span><span class="msg-when">${esc(msgWhen(m.created_at))}${mine && m.read_at ? " • Read" : ""}</span></div>`;
+}
+
 /* ---------------- direct messages ----------------
    Member-to-member private chat. A conversation is every message
    row between the same pair of members; read_at (NULL = unread) is
@@ -1460,10 +1519,7 @@ function viewMessagesHtml() {
         </div>
       </div>
       <div class="msg-thread">
-        ${msgs.length ? msgs.map((m) => {
-          const mine = m.sender_id === myProfile.id;
-          return `<div class="msg-bubble ${mine ? "mine" : "theirs"}"><span class="msg-body">${esc(m.body)}</span><span class="msg-when">${esc(msgWhen(m.created_at))}${mine && m.read_at ? " • Read" : ""}</span></div>`;
-        }).join("") : `<p class="empty">No messages yet — say hi to ${esc(other.display_name)}.</p>`}
+        ${msgs.length ? msgs.map((m) => msgBubbleHtml(m, m.sender_id === myProfile.id, other)).join("") : `<p class="empty">No messages yet — say hi to ${esc(other.display_name)}.</p>`}
       </div>
       <form id="msg-send-form" class="msg-send">
         <label class="sr-only" for="msg-input" style="position:absolute;left:-9999px">Message ${esc(other.display_name)}</label>
@@ -2411,12 +2467,83 @@ function openProfileForm() {
         ${p.avatar_url ? `<button type="button" class="btn btn-ghost btn-sm" id="pf-photo-remove" style="margin-top:.6rem">REMOVE PHOTO</button>` : ""}
         <p class="scan-status" id="pf-photo-status" role="status" hidden></p>
       </section>` : ""}
+      ${p && msgStyleReady ? `<section class="msg-style" aria-labelledby="pf-msg-label">
+        <span class="label" id="pf-msg-label">Message style</span>
+        <p class="form-note" style="margin:0">Your chat bubbles wear your colour and lettering — in every conversation, for everyone you message. Leave it untouched and your bubbles stay the site pink.</p>
+        <span class="sub-label" id="pf-msg-color-label">Bubble colour</span>
+        <div class="swatches" role="group" aria-labelledby="pf-msg-color-label">
+          ${MSG_COLORS.map((c) => `<button type="button" class="swatch" data-msg-swatch="${c.hex}" style="background:${c.hex}" aria-pressed="${msgHexOk(p.msg_color) && p.msg_color.toUpperCase() === c.hex}" aria-label="Bubble colour ${c.name}"></button>`).join("")}
+        </div>
+        <div class="msg-custom-row">
+          <label for="pf-msg-custom">Any colour:</label>
+          <input type="color" id="pf-msg-custom" value="${msgHexOk(p.msg_color) ? p.msg_color.toLowerCase() : "#ff2e88"}" aria-pressed="${msgHexOk(p.msg_color) && !MSG_COLORS.some((c) => c.hex === p.msg_color.toUpperCase())}" aria-label="Pick any bubble colour" />
+          <span class="form-note" style="margin:0">…or pick any colour you like.</span>
+        </div>
+        <input type="hidden" id="pf-msg-color" value="${esc(msgHexOk(p.msg_color) ? p.msg_color.toUpperCase() : "")}" />
+        <span class="sub-label" id="pf-msg-font-label">Lettering</span>
+        <div class="msg-font-row" role="group" aria-labelledby="pf-msg-font-label">
+          ${MSG_FONTS.map((f) => `<button type="button" class="msg-font-chip msg-font-${f.key}" data-msg-font="${f.key}" aria-pressed="${(MSG_FONTS.some((x) => x.key === p.msg_font) ? p.msg_font : "site") === f.key}"><span class="msg-body">${f.label}</span></button>`).join("")}
+        </div>
+        <input type="hidden" id="pf-msg-font" value="${esc(MSG_FONTS.some((f) => f.key === p.msg_font) ? p.msg_font : "")}" />
+        <span class="sub-label">Preview</span>
+        <div class="msg-preview-thread">
+          <div class="msg-bubble mine" id="pf-msg-preview"><span class="msg-body">Your messages will look like this</span><span class="msg-when">Now</span></div>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="pf-msg-reset">RESET TO SITE DEFAULTS</button>
+      </section>` : ""}
       <p class="form-error" id="pf-error"></p>
       <button type="submit" class="btn btn-pink" style="width:100%">${p ? "SAVE PROFILE" : "START MY SHELF"}</button>
     </form>`);
   wireSwatches(document);
   wireProfilePhoto();
+  wireMsgStyle();
   $("#profile-form").addEventListener("submit", onProfileSubmit);
+}
+/* ---------------- message style picker ----------------
+   The Edit Profile Message style section: swatches + an any-colour
+   picker for the bubble colour, chips for the lettering, and a live
+   preview bubble. Picks land in the two hidden inputs and save with
+   the rest of the profile form (onProfileSubmit) — no separate write.
+   Empty hidden inputs = the site defaults, saved as NULL. */
+function wireMsgStyle() {
+  const colorInput = $("#pf-msg-color");
+  if (!colorInput) return;
+  const fontInput = $("#pf-msg-font");
+  const custom = $("#pf-msg-custom");
+  const preview = $("#pf-msg-preview");
+  const applyPreview = () => {
+    if (!preview) return;
+    const color = msgHexOk(colorInput.value) ? colorInput.value.toUpperCase() : MSG_DEFAULT_MINE;
+    const font = MSG_FONTS.some((f) => f.key === fontInput.value) ? fontInput.value : "site";
+    preview.setAttribute("style", msgBubbleVars(color));
+    preview.className = `msg-bubble mine msg-font-${font}`;
+  };
+  const markColor = () => {
+    const cur = (colorInput.value || "").toUpperCase();
+    document.querySelectorAll("[data-msg-swatch]").forEach((b) =>
+      b.setAttribute("aria-pressed", String(b.dataset.msgSwatch === cur)));
+    if (custom) custom.setAttribute("aria-pressed", String(msgHexOk(cur) && !MSG_COLORS.some((c) => c.hex === cur)));
+  };
+  document.querySelectorAll("[data-msg-swatch]").forEach((b) =>
+    b.addEventListener("click", () => { colorInput.value = b.dataset.msgSwatch; markColor(); applyPreview(); }));
+  if (custom) custom.addEventListener("input", () => { colorInput.value = custom.value.toUpperCase(); markColor(); applyPreview(); });
+  document.querySelectorAll("[data-msg-font]").forEach((b) =>
+    b.addEventListener("click", () => {
+      fontInput.value = b.dataset.msgFont;
+      document.querySelectorAll("[data-msg-font]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      applyPreview();
+    }));
+  const reset = $("#pf-msg-reset");
+  if (reset) reset.addEventListener("click", () => {
+    colorInput.value = "";
+    fontInput.value = "";
+    if (custom) custom.value = "#ff2e88";
+    document.querySelectorAll("[data-msg-font]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.msgFont === "site")));
+    markColor();
+    applyPreview();
+  });
+  markColor();
+  applyPreview();
 }
 /* ---------------- profile photo ----------------
    The photo uploads the moment it's picked (not on form save): it
@@ -2522,6 +2649,16 @@ async function onProfileSubmit(e) {
       bio: $("#pf-bio").value.trim(),
       avatar_color: $("#pf-color").value,
     };
+    // Message style rides this same save, but only when its section
+    // was rendered — an existing profile and the msg_color/msg_font
+    // columns in place (add-message-style.sql). Empty picks save as
+    // NULL, which is the site defaults.
+    const msgColorEl = $("#pf-msg-color");
+    if (myProfile && msgColorEl) {
+      fields.msg_color = msgHexOk(msgColorEl.value) ? msgColorEl.value.toUpperCase() : null;
+      const msgFontEl = $("#pf-msg-font");
+      fields.msg_font = msgFontEl && MSG_FONTS.some((f) => f.key === msgFontEl.value) ? msgFontEl.value : null;
+    }
     if (!fields.display_name) throw new Error("Give your shelf a display name.");
     if (myProfile) {
       const { error } = await sb.from("collectors").update(fields).eq("id", myProfile.id);

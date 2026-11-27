@@ -1048,3 +1048,76 @@ place of the coloured initial, everywhere they appear.
 - **Remaining step**: run `supabase/add-avatar.sql` in the Supabase
   SQL Editor (handled separately). Until then the live site behaves
   exactly as before.
+
+## Update — Message bubble styles (2026-11-27)
+
+Joshua's ask, after test-messaging Alfred on the site: his sent
+bubbles came out pink, Alfred's replies looked like plain boxes.
+Now every member picks the colour and lettering of their OWN chat
+bubbles, and bubbles wear site colours by default — yours Neon
+Pink, the other member's Electric Blue.
+
+- **Database** (`supabase/add-message-style.sql`, also folded into
+  schema.sql): `collectors` gains `msg_color` (a hex string like
+  '#FF2E88') and `msg_font` (a front-end font key), both nullable —
+  NULL is the site defaults. Both are **public by design**: a
+  member's bubble style shows to everyone they message, so both ride
+  `public_profiles` (recreated from the current live definition with
+  the two fields appended), exactly like `avatar_url`. The
+  founder-feature guard is recreated with both fields in its
+  frozen-column list, so featuring still can't rewrite a member's
+  style. The messages table, its RLS and all message privacy are
+  untouched; no new policy is needed — Edit Profile already PATCHes
+  the member's own collectors row, and the style fields ride that
+  same update. Written against the LIVE schema: no `stripe_*`
+  column is referenced anywhere.
+- **Front end**: Edit Profile gains a **MESSAGE STYLE** section
+  (existing profiles only, like the photo section). Bubble colour:
+  eight site-style swatches — Neon Pink #FF2E88, Electric Blue
+  #2EA6FF, Red #FF3B30, Purple #9B5CFF, Cyan #22D3EE, Green #34D399,
+  Orange #FF8A3D, Yellow #FFD23D — plus an any-colour
+  `<input type="color">`. Lettering: seven tappable chips, each
+  labelled in its own lettering — `site` (default), `comic`
+  (Archivo Black), `marker` ('Permanent Marker'), `hand` ('Caveat'),
+  `type` ('Courier New'), `serif` (Georgia), `heavy` (Arial Black
+  stack). 'Permanent Marker' and 'Caveat' join the site's Google
+  Fonts import in styles.css (display=swap; every stack falls back
+  gracefully). A live preview bubble updates as you pick, a RESET
+  TO SITE DEFAULTS button clears both picks, and everything saves
+  with the profile form's normal save (empty picks save as NULL).
+  In a thread, **each bubble wears its sender's style**: a dark tint
+  of their colour over the site's bubble background (16% alpha), a
+  2px solid border in the colour, a soft glow (35% alpha), and their
+  lettering on the body text — text always stays the site's normal
+  light text on a dark fill, so any colour, preset or custom, light
+  or dark, stays readable. Timestamps keep the plain muted style;
+  left/right alignment is unchanged.
+- **Graceful before the SQL runs**: if the collectors row has no
+  `msg_color`/`msg_font` keys, the section stays out of Edit
+  Profile and every bubble wears the defaults — the rest of the
+  site is untouched. Market stays closed; Stripe untouched; no
+  values anywhere.
+- **Verified locally**: PGlite (real Postgres) against the
+  simulated LIVE shape (live `public_profiles` ending in
+  `avatar_url`, the live founder guard, NO stripe columns) —
+  migration applies cleanly and idempotently, **15/15 checks**
+  (columns exist with NULL defaults, the view returns both fields,
+  a member sets and clears their own style, a member cannot touch
+  another's row, the founder can still feature but cannot rewrite a
+  member's `msg_color`, anon reads the view but not the base
+  table). Headless Chrome with stubbed Supabase — **59/59 checks**:
+  defaults at 360px, 390px and 412px (mine pink / theirs blue,
+  computed border colours exact, site lettering, a 110-character
+  unbroken word stays inside the viewport); the full Edit Profile
+  flow (section renders with 8 swatches, 7 lettering chips, custom
+  colour input, preview and reset; swatch and custom picks update
+  the hidden fields and preview live; the marker chip puts the
+  Permanent Marker stack on the preview; saving persists
+  `msg_color`/`msg_font` to the profile row and the member's
+  bubbles pick the saved style up); a custom-styles run (my green +
+  marker vs their purple + typewriter, from their public profiles);
+  and a pre-migration run (no section, default bubbles). At every
+  width: no horizontal overflow, no JS errors.
+- **Remaining step**: run `supabase/add-message-style.sql` in the
+  Supabase SQL Editor (handled separately). Until then the live
+  site behaves exactly as before.

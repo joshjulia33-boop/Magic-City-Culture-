@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&family=Caveat:wght@500;700&family=Permanent+Marker&display=swap');
 
 /* Magic City Culture — neon-night brand: deep indigo night sky, neon pink
    primary, electric blue secondary. Ported from the original app's theme. */
@@ -305,6 +305,27 @@ nav.main-nav {
 .pf-photo-head .avatar { flex: none; }
 .profile-photo .scan-status { color: var(--accent-soft); }
 
+/* message style (Edit Profile): bubble colour swatches + any-colour
+   picker, lettering chips (each labelled in its own lettering), and a
+   live preview bubble. Mirrors the profile-photo section's spacing. */
+.msg-style { margin: 0 0 1rem; }
+.msg-style .label { display: block; margin-bottom: 0.45rem; }
+.msg-style .sub-label { display: block; margin: 0.8rem 0 0.4rem; font-size: 12.5px; font-weight: 700; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.msg-custom-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; flex-wrap: wrap; }
+.msg-custom-row label { font-size: 14px; font-weight: 600; }
+.msg-custom-row input[type="color"] {
+  width: 3rem; height: 2.2rem; padding: 0.15rem; border-radius: 8px;
+  border: 2px solid var(--border); background: var(--surface); cursor: pointer;
+}
+.msg-custom-row input[type="color"][aria-pressed="true"] { border-color: #fff; box-shadow: 0 0 0 2px #000, 0 0 10px rgba(255,255,255,0.4); }
+.msg-font-row { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.msg-font-chip {
+  border: 2px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 9999px; padding: 0.45rem 0.85rem; font-size: 15px; min-height: 2.4rem;
+}
+.msg-font-chip[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-alt); box-shadow: 0 0 8px rgba(255,46,136,0.45); }
+.msg-preview-thread { display: flex; flex-direction: column; margin: 0.25rem 0 0.6rem; }
+
 /* ---------- sections ---------- */
 section.block { padding-top: 1.5rem; }
 h2.view-title { font-family: var(--font-display); font-size: 24px; margin: 0; }
@@ -390,13 +411,35 @@ h2.view-title { font-family: var(--font-display); font-size: 24px; margin: 0; }
   font-size: 11px; font-weight: 800; line-height: 1.35;
 }
 .msg-thread { display: flex; flex-direction: column; gap: 0.45rem; margin: 0.75rem 0 1rem; }
+/* Every bubble wears its SENDER's chosen style (Edit Profile →
+   Message style): a dark tint of their colour over the site's bubble
+   background, a 2px border and a soft glow in that colour, and their
+   lettering on the body text. The tint/border/glow ride inline custom
+   properties (--msgc / --msgbg / --msgs) set from app.js, so any
+   colour — preset or custom, light or dark — stays readable: the
+   text is always the site's normal light text on a dark fill, never
+   light text on a light solid. Defaults: mine Neon Pink, theirs
+   Electric Blue. The timestamp keeps the plain muted site style. */
 .msg-bubble {
   max-width: 82%; min-width: 0; padding: 0.5rem 0.7rem; border-radius: 14px;
   font-size: 14.5px; line-height: 1.35; overflow-wrap: anywhere;
+  background: var(--msgbg, var(--surface));
+  border: 2px solid var(--msgc, var(--border));
+  box-shadow: 0 0 10px var(--msgs, transparent);
+  color: var(--text);
 }
-.msg-bubble .msg-when { display: block; margin-top: 0.25rem; font-size: 10.5px; font-weight: 700; opacity: 0.75; }
-.msg-bubble.theirs { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-.msg-bubble.mine { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.msg-bubble .msg-when { display: block; margin-top: 0.25rem; font-size: 10.5px; font-weight: 700; opacity: 0.75; font-family: var(--font-sans); }
+.msg-bubble.theirs { align-self: flex-start; border-bottom-left-radius: 4px; }
+.msg-bubble.mine { align-self: flex-end; border-bottom-right-radius: 4px; }
+/* Bubble lettering styles — the keys match MSG_FONTS in app.js. The
+   body span carries the font; each stack falls back gracefully if a
+   webfont fails to load. "site" is the default and needs no rule. */
+.msg-font-comic .msg-body { font-family: "Archivo Black", "Arial Black", system-ui, sans-serif; letter-spacing: 0.01em; }
+.msg-font-marker .msg-body { font-family: "Permanent Marker", "Segoe Print", "Comic Sans MS", cursive; }
+.msg-font-hand .msg-body { font-family: "Caveat", "Segoe Script", cursive; font-size: 18px; line-height: 1.25; }
+.msg-font-type .msg-body { font-family: "Courier New", Courier, monospace; }
+.msg-font-serif .msg-body { font-family: Georgia, "Times New Roman", serif; }
+.msg-font-heavy .msg-body { font-family: "Arial Black", "Archivo Black", system-ui, sans-serif; }
 .msg-send { display: flex; gap: 0.5rem; align-items: stretch; }
 .msg-send .input { flex: 1; min-width: 0; }
 .msg-send .btn { flex: none; }
