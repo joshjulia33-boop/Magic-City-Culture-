@@ -1130,6 +1130,51 @@ create policy "book_comments: author or founder deletes"
   );
 
 -- ----------------------------------------------------------------------------
+-- follows — following a collector (see add-follows.sql). One tap,
+-- no request/accept: deliberately LIGHTER than friendship, and a
+-- separate system that shares no state with it. A follow is one row
+-- per (follower, followee) pair — the primary key makes a duplicate
+-- follow impossible, unfollowing deletes your own row, and a check
+-- keeps anyone from following themselves. Follows are PUBLIC reads
+-- (follower/following counts show on every card and profile) and
+-- expose nothing private — no values are involved. Writes are only
+-- ever as yourself in the follower role, and a follow row is never
+-- updated: there is no update policy or grant.
+-- ----------------------------------------------------------------------------
+create table if not exists public.follows (
+  follower_id uuid not null references public.collectors (id) on delete cascade,
+  followee_id uuid not null references public.collectors (id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (follower_id, followee_id),
+  check (follower_id <> followee_id)
+);
+
+create index if not exists follows_followee_idx
+  on public.follows (followee_id);
+create index if not exists follows_follower_idx
+  on public.follows (follower_id);
+
+alter table public.follows enable row level security;
+
+drop policy if exists "follows: public read" on public.follows;
+create policy "follows: public read"
+  on public.follows for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "follows: member follows" on public.follows;
+create policy "follows: member follows"
+  on public.follows for insert
+  to authenticated
+  with check (follower_id = public.current_collector_id());
+
+drop policy if exists "follows: member unfollows" on public.follows;
+create policy "follows: member unfollows"
+  on public.follows for delete
+  to authenticated
+  using (follower_id = public.current_collector_id());
+
+-- ----------------------------------------------------------------------------
 -- Public views (curated projections — the only public read paths that touch
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
@@ -1231,6 +1276,11 @@ grant select on public.book_likes to anon, authenticated;
 grant insert, delete on public.book_likes to authenticated;
 grant select on public.book_comments to anon, authenticated;
 grant insert, delete on public.book_comments to authenticated;
+
+-- follows: public read (anon included); members write as themselves.
+-- No update grant — a follow is created or deleted, never changed.
+grant select on public.follows to anon, authenticated;
+grant insert, delete on public.follows to authenticated;
 
 grant select on public.public_profiles to anon, authenticated;
 grant select on public.gallery_comics to anon, authenticated;

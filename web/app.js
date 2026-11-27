@@ -205,6 +205,8 @@ let detailComicId = null;        // comic whose detail modal is open, or null
 let detailComments = [];         // comments loaded for the open detail book
 let detailCommentsFor = null;    // comic id detailComments belongs to
 let commentsReady = true;        // false until the book_comments table exists (add-comments.sql)
+let allFollows = [];             // follows rows — public, drives the counts (add-follows.sql)
+let followsReady = true;         // false until the follows table exists (add-follows.sql)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -431,6 +433,16 @@ async function loadBookSocial() {
   else { likesReady = true; bookLikes = data || []; }
   const probe = await sb.from("book_comments").select("id").limit(1);
   commentsReady = !probe.error;
+  await loadFollows();
+}
+// Follows load with the public data too (counts are public — see
+// ../supabase/add-follows.sql) and never break it: until that SQL
+// runs, the follows table doesn't exist and the follow buttons,
+// counts and the Following panel simply stay out of the way.
+async function loadFollows() {
+  const { data, error } = await sb.from("follows").select("*").limit(5000);
+  if (error) { followsReady = false; allFollows = []; }
+  else { followsReady = true; allFollows = data || []; }
 }
 async function resolveMyProfile() {
   myProfile = null;
@@ -676,10 +688,11 @@ function featuredMemberCardHtml(p) {
         <span class="cname">${esc(p.display_name)} ${p.is_founder ? '<span class="founder-tag">FOUNDER</span>' : ""}</span>
         <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
         ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
-        <span class="cmeta" style="display:block">${books.length} books • ${signed} signed • Joined ${esc(joinedLabel(p.created_at))}</span>
+        <span class="cmeta" style="display:block">${books.length} books • ${signed} signed${followsReady ? ` • ${followCountLabel(followerCountFor(p.id), "follower")}` : ""} • Joined ${esc(joinedLabel(p.created_at))}</span>
       </span>
     </button>
     ${friendButtonHtml(p)}
+    ${followButtonHtml(p)}
   </article>`;
 }
 function featuredStripHtml() {
@@ -1245,6 +1258,109 @@ async function removeFriendship(friendshipId) {
   }
 }
 
+/* ---------------- follow a collector ----------------
+   Following is deliberately LIGHTER than friendship: one tap, no
+   request, no accept step — and a separate system that shares no
+   state with Friends. Follows are public (see
+   ../supabase/add-follows.sql): follower and following counts show
+   on every collector card and profile, signed out included. A
+   member follows/unfollows only as themselves (RLS); until that SQL
+   runs, followsReady is false and all of this stays quietly out of
+   the way. Nothing here ever touches a book's values. */
+function followerCountFor(collectorId) {
+  return allFollows.reduce((n, f) => n + (f.followee_id === collectorId ? 1 : 0), 0);
+}
+function followingCountFor(collectorId) {
+  return allFollows.reduce((n, f) => n + (f.follower_id === collectorId ? 1 : 0), 0);
+}
+function followCountLabel(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+function iFollow(collectorId) {
+  return !!myProfile && allFollows.some((f) => f.follower_id === myProfile.id && f.followee_id === collectorId);
+}
+// The follow control for one member, in whatever state we're in with
+// them. Rendered on their Collectors card, their profile page and in
+// the featured strip. Never on your own card/profile. Signed-out
+// visitors see the button too — tapping it opens the join flow (the
+// counts above it are public either way).
+function followButtonHtml(p) {
+  if (!followsReady) return "";
+  if (myProfile && p.id === myProfile.id) return "";
+  if (iFollow(p.id)) {
+    return `<div class="friend-row"><span class="friend-state ok">FOLLOWING ✓</span><button type="button" class="btn btn-ghost btn-sm" data-action="follow-toggle" data-id="${p.id}">UNFOLLOW</button></div>`;
+  }
+  return `<div class="friend-row"><button type="button" class="btn btn-blue btn-sm" data-action="follow-toggle" data-id="${p.id}">＋ FOLLOW</button></div>`;
+}
+async function toggleFollow(collectorId) {
+  if (!followsReady) return;
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  if (busy || collectorId === myProfile.id) return;
+  busy = true;
+  try {
+    if (iFollow(collectorId)) {
+      const { error } = await sb.from("follows").delete()
+        .eq("follower_id", myProfile.id).eq("followee_id", collectorId);
+      if (error) throw error;
+      allFollows = allFollows.filter((f) => !(f.follower_id === myProfile.id && f.followee_id === collectorId));
+      const other = profileById(collectorId);
+      setNotice(`You unfollowed ${other ? other.display_name : "that collector"}.`);
+    } else {
+      const { error } = await sb.from("follows").insert({ follower_id: myProfile.id, followee_id: collectorId });
+      if (error) throw error;
+      allFollows.push({ follower_id: myProfile.id, followee_id: collectorId, created_at: new Date().toISOString() });
+      const other = profileById(collectorId);
+      setNotice(`You're now following ${other ? other.display_name : "that collector"} — their newest books will show on your shelf.`);
+    }
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "That follow didn't stick — try again.");
+  } finally {
+    busy = false;
+  }
+}
+function followRowHtml(otherId) {
+  const o = profileById(otherId);
+  if (!o) return "";
+  return `<div class="friend-item">
+    ${avatarHtml(o)}
+    <span class="fr-main">
+      <button type="button" class="owner-link" data-action="goto-profile" data-id="${o.id}">${esc(o.display_name)}</button>
+      <span class="fr-handle">@${esc(o.handle)}</span>
+    </span>
+    <span class="row-actions" style="margin-top:0"><span class="friend-state ok">FOLLOWING ✓</span><button type="button" class="btn btn-ghost btn-sm" data-action="follow-toggle" data-id="${o.id}">UNFOLLOW</button></span>
+  </div>`;
+}
+// The My Shelf panel: who you follow (with unfollow), your follower
+// count, and — underneath — the newest books from the people you
+// follow, rendered as the site's standard book cards. The gallery
+// rows are already newest-first, so the feed is a filtered slice.
+function followingPanelHtml(p) {
+  if (!followsReady) {
+    return `<div class="values-panel">
+      <p class="vp-tag">FOLLOWING</p>
+      <p class="vp-note" style="margin-top:.4rem">Following is being switched on — check back shortly.</p>
+    </div>`;
+  }
+  const following = allFollows
+    .filter((f) => f.follower_id === p.id)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const followers = followerCountFor(p.id);
+  const followeeIds = new Set(following.map((f) => f.followee_id));
+  const fresh = gallery.filter((c) => followeeIds.has(c.collector_id)).slice(0, 12);
+  return `<div class="values-panel">
+    <p class="vp-tag">FOLLOWING — ${followCountLabel(following.length, "COLLECTOR").toUpperCase()} FOLLOWED</p>
+    <p class="vp-note" style="margin-top:.4rem">${followCountLabel(followers, "collector")} follow${followers === 1 ? "s" : ""} you. Following is one tap — no request, no waiting — and it's separate from Friends: tap FOLLOW on any collector and their newest books show up right here.</p>
+    ${following.length ? `<div class="friend-list">${following.map((f) => followRowHtml(f.followee_id)).join("")}</div>`
+      : `<p class="vp-note" style="margin-top:.6rem">You don't follow anyone yet — tap FOLLOW on any collector to see their newest books here.</p>`}
+  </div>
+  ${following.length ? `<section class="follow-feed">
+    <h3 class="follow-feed-title">NEW FROM PEOPLE YOU FOLLOW</h3>
+    ${fresh.length ? `<div class="grid">${fresh.map(galleryCardHtml).join("")}</div>` : `<p class="empty">No new books from the people you follow yet — their latest adds will land here.</p>`}
+  </section>` : ""}`;
+}
+
 /* ---------------- direct messages ----------------
    Member-to-member private chat. A conversation is every message
    row between the same pair of members; read_at (NULL = unread) is
@@ -1476,6 +1592,7 @@ function viewCollectorsHtml() {
         const ct = counts.get(p.id) || { books: 0, signed: 0 };
         const isMe = !!myProfile && p.id === myProfile.id;
         const friendBit = isMe && friendsReady ? ` • ${myFriendCount()} friend${myFriendCount() === 1 ? "" : "s"}` : "";
+        const followBit = followsReady ? ` • ${followCountLabel(followerCountFor(p.id), "follower")}` : "";
         return `<article class="collector-card">
           <button type="button" class="collector-main" data-action="goto-profile" data-id="${p.id}" aria-label="View ${esc(p.display_name)}'s shelf">
             ${avatarHtml(p, "lg")}
@@ -1483,10 +1600,11 @@ function viewCollectorsHtml() {
               <span class="cname">${esc(p.display_name)} ${p.is_founder ? '<span class="founder-tag">FOUNDER</span>' : ""}</span>
               <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
               ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
-              <span class="cmeta" style="display:block">${ct.books} books • ${ct.signed} signed${friendBit} • Joined ${esc(joinedLabel(p.created_at))}</span>
+              <span class="cmeta" style="display:block">${ct.books} books • ${ct.signed} signed${friendBit}${followBit} • Joined ${esc(joinedLabel(p.created_at))}</span>
             </span>
           </button>
           ${friendButtonHtml(p)}
+          ${followButtonHtml(p)}
           ${messageButtonHtml(p)}
         </article>`;
       }).join("")}
@@ -1515,10 +1633,12 @@ function viewProfileHtml(collectorId) {
     </div>
     <div class="stat-chips" style="justify-content:flex-start">
       <span>${books.length} books</span><span>${signed} signed</span><span>${remarqued} remarqued</span>
+      ${followsReady ? `<span>${followCountLabel(followerCountFor(collectorId), "follower")}</span><span>${followingCountFor(collectorId)} following</span>` : ""}
       ${myProfile && p.id === myProfile.id && friendsReady ? `<span>${myFriendCount()} friends</span>` : ""}
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
     ${friendButtonHtml(p)}
+    ${followButtonHtml(p)}
     ${messageButtonHtml(p)}
     ${user && myProfile && p.id !== myProfile.id && adminReady ? `<div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="report-member" data-id="${p.id}">REPORT THIS MEMBER</button></div>` : ""}
     ${heatCarouselHtml()}
@@ -1669,6 +1789,7 @@ function viewShelfHtml() {
     </div>
     ${MARKET_OPEN ? payoutsPanelHtml(p) : ""}
     ${friendsPanelHtml(p)}
+    ${followingPanelHtml(p)}
     ${invitePanelHtml(p)}
     ${myComics.length ? `
     <div class="toolbar">
@@ -3741,6 +3862,7 @@ document.addEventListener("click", (e) => {
     case "report-dismiss": resolveReport(id, "dismissed"); break;
     case "report-book": openReportModal("book", id, "this book"); break;
     case "report-member": { const rp = profileById(id); openReportModal("member", id, rp ? `@${rp.handle}` : "this member"); break; }
+    case "follow-toggle": toggleFollow(id); break;
     case "friend-add": sendFriendRequest(id); break;
     case "friend-accept": acceptFriendship(id); break;
     case "friend-remove": removeFriendship(id); break;

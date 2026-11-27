@@ -914,3 +914,67 @@ thread — the community layer the comparison pass recommended third.
 - **Remaining step**: run `supabase/add-comments.sql` in the Supabase
   SQL Editor (handled separately). Until then the live site behaves
   exactly as before.
+
+## Update — Follow a Collector (2026-11-27)
+
+The light counterpart to Friends, and the fourth pick from the
+comparison list: following a collector is one tap — no request, no
+accept step, nothing pending — and it is a fully separate system
+that shares no state with friendship.
+
+- **Database** (`supabase/add-follows.sql`, also folded into
+  schema.sql): `public.follows` (follower_id + followee_id, the
+  pair as primary key — a duplicate follow is impossible; unfollowing
+  deletes your own row; a check rejects following yourself; indexes
+  on both ids). Follows are **public reads** (`to anon,
+  authenticated`): follower and following counts are part of a
+  collector's public card and profile, and a follow exposes nothing
+  else — two member ids and a date. No values are involved anywhere.
+  Writes are narrowed hard: INSERT and DELETE only as yourself in
+  the follower role (`follower_id = current_collector_id()`), and
+  there is no UPDATE policy or grant — a follow row is created or
+  deleted, never changed. The migration is written against the LIVE
+  schema: it touches no existing view and no `stripe_*` column.
+- **Front end**: a **＋ FOLLOW / FOLLOWING ✓ + UNFOLLOW** toggle on
+  every collector card, profile page and featured-strip member card
+  (never on your own), with the public follower count in the card
+  meta line and follower/following chips on the profile. Signed-in
+  members toggle in place; signed-out visitors see the counts and
+  the button, and tapping opens the join flow (a signed-in member
+  without a profile gets the profile form) — nothing is written.
+  My Shelf gains a **FOLLOWING** panel in the Friends panel's style:
+  who you follow (avatar, name, @handle, UNFOLLOW), your follower
+  count, and honest empty states; underneath it, a **NEW FROM
+  PEOPLE YOU FOLLOW** section renders the latest books added by
+  collectors you follow (newest first, capped at 12) as the site's
+  standard book cards — your own books and unfollowed members' books
+  never appear in it. Follows load with the public data (one
+  `follows` read), and toggling updates the local rows so counts and
+  buttons agree everywhere without a reload.
+- **Graceful before the SQL runs**: if the table is missing, the
+  follow buttons and counts stay off the cards and profiles and the
+  shelf panel shows a short "being switched on" note — the rest of
+  the site is untouched. Market stays closed; Stripe untouched; no
+  values anywhere.
+- **Verified locally**: PGlite (real Postgres) — schema + migration
+  apply cleanly and idempotently, **20/20 checks** (follow/unfollow
+  only as self; self-follow rejected by the check; duplicate follow
+  dies on the PK; followee cannot delete a follow of themselves;
+  nobody can update a follow; anon reads counts but writes nothing;
+  deleting a collector cascades their follows). Headless Chrome with
+  stubbed Supabase — **88/88 checks** across member sessions at
+  **360px, 390px and 412px**, signed-out sessions at 390px and
+  360px, and a degraded run with the table missing: card counts
+  start at the stubbed values, follow flips the card and profile to
+  FOLLOWING ✓ with the count updated, the shelf panel lists
+  followees with unfollow, the feed shows a followed member's latest
+  book and neither an unfollowed member's nor your own, unfollowing
+  from the shelf returns the empty state and removes the feed,
+  following from a profile feeds the shelf, signed-out visitors see
+  counts and get the join flow from the button (nothing written),
+  and with the table missing there are no buttons, no counts, just
+  the switching-on note. At every width: no horizontal overflow, no
+  overlapping elements, no JS errors.
+- **Remaining step**: run `supabase/add-follows.sql` in the Supabase
+  SQL Editor (handled separately). Until then the live site behaves
+  exactly as before.

@@ -343,6 +343,16 @@ h2.view-title { font-family: var(--font-display); font-size: 24px; margin: 0; }
   background: none; border: none; padding: 0; text-decoration: underline dotted; text-underline-offset: 2px; }
 .friend-item .fr-handle { font-size: 12px; font-weight: 700; color: var(--dim); }
 
+/* follow a collector: the shelf feed of newest books from followed
+   members. It reuses the standard book-card grid, so it inherits the
+   grid's own phone fit — the title wraps normally and nothing here
+   can push the page sideways. */
+.follow-feed { margin-top: 1.25rem; }
+.follow-feed-title {
+  font-family: var(--font-display); font-size: 19px; letter-spacing: 0.02em;
+  margin: 0 0 0.6rem; color: var(--text); overflow-wrap: break-word;
+}
+
 /* ---------- direct messages ----------
    Inbox rows are full-width buttons: avatar, name + last-message
    preview (one line, ellipsis — never a mid-word spill), and a side

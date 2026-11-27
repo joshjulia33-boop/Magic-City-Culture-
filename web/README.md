@@ -101,6 +101,19 @@ host — no build step, no server of its own.
   enforced in the database (`supabase/add-comments.sql`): likes and
   comments are public reads, writes are only ever as yourself, and
   comments can never be edited. No values are involved.
+- **Follow a Collector** — the light counterpart to Friends: one tap
+  on any collector card or profile page, no request and no accept
+  step. Follower and following counts are public — they show on
+  every card and profile, signed out included; visitors who tap
+  Follow get the join flow. My Shelf gains a **Following** panel —
+  who you follow (with unfollow), how many collectors follow you —
+  and a **New From People You Follow** section underneath: the
+  latest books added by the collectors you follow, newest first, as
+  standard book cards. Following is fully separate from Friends and
+  shares no state with it. Enforced in the database
+  (`supabase/add-follows.sql`): follows are public reads, and a
+  member can only ever follow or unfollow as themselves. No values
+  are involved.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).
