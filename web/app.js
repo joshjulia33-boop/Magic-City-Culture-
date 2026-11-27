@@ -186,6 +186,9 @@ let radarMsg = "";               // radar: small status line under the location 
 let heatIndex = 0;               // heat monitor: slide currently showing
 let heatTimer = null;            // heat monitor: auto-cycle interval (cleared every render)
 let heatPaused = false;          // heat monitor: pause auto-cycle on hover/touch
+let upcIndex = 0;                // hot up & coming: slide currently showing
+let upcTimer = null;             // hot up & coming: auto-cycle interval (cleared every render)
+let upcPaused = false;           // hot up & coming: pause auto-cycle on hover/touch
 let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
@@ -525,6 +528,7 @@ function viewGalleryHtml() {
     </div>
   </section>
   ${heatCarouselHtml()}
+  ${upcomingCarouselHtml()}
   <section>
     <div class="toolbar">
       <label class="sr-only" for="gallery-search" style="position:absolute;left:-9999px">Search the gallery</label>
@@ -1089,6 +1093,7 @@ function viewProfileHtml(collectorId) {
     </div>
     ${friendButtonHtml(p)}
     ${heatCarouselHtml()}
+    ${upcomingCarouselHtml()}
     ${books.length ? `<div class="grid">${books.map(galleryCardHtml).join("")}</div>` : `<p class="empty">No books on this shelf yet.</p>`}
   </section>`;
 }
@@ -1232,7 +1237,7 @@ function viewShelfHtml() {
         ${p.show_values_publicly ? "MAKE MY VALUES PRIVATE AGAIN" : "MAKE MY VALUES PUBLIC"}
       </button>
     </div>
-    ${payoutsPanelHtml(p)}
+    ${MARKET_OPEN ? payoutsPanelHtml(p) : ""}
     ${friendsPanelHtml(p)}
     ${invitePanelHtml(p)}
     ${myComics.length ? `
@@ -1318,6 +1323,7 @@ function render() {
   }
   wireRadar();
   wireHeat();
+  wireUpcoming();
 }
 async function copyReferralLink() {
   const input = $("#ref-link");
@@ -2776,6 +2782,104 @@ function wireHeat() {
   }, 4000);
 }
 
+/* ---------------- hot up & coming ----------------
+   "🚀 HOT UP & COMING — COMICS TO WATCH": a Top 10 carousel of
+   upcoming comics most likely to be hot, shown DIRECTLY UNDER the
+   Heat Monitor on the gallery and on every collector profile, and —
+   like the Heat Monitor — visible to everyone, signed in or not.
+   Data is the curated static list in upcoming.js
+   (window.MCC_UPCOMING): real release dates (or FOC dates, labeled
+   as such) from publisher solicitations, Previews listings and
+   comic news, each with a source link. Informational only — no
+   prices, no buying or selling, no member data. No database step.
+   If upcoming.js is missing or empty the section renders nothing at
+   all; a missing/failed cover falls back to the placeholder tile.
+   It runs on its own index/timer/pause state, fully separate from
+   the Heat Monitor's, and advances by updating DOM classes in
+   place (never a full render), so neither carousel steals focus. */
+function upcItems() {
+  const d = window.MCC_UPCOMING;
+  if (!d || !Array.isArray(d.items)) return [];
+  return d.items
+    .filter((it) => it && it.title)
+    .slice()
+    .sort((a, b) => (a.rank || 99) - (b.rank || 99))
+    .slice(0, 10);
+}
+function upcomingCarouselHtml() {
+  const items = upcItems();
+  if (!items.length) return "";
+  if (upcIndex >= items.length) upcIndex = 0;
+  const d = window.MCC_UPCOMING;
+  let updated = "";
+  if (d && d.updatedAt) {
+    const dt = new Date(d.updatedAt);
+    if (!isNaN(dt)) {
+      updated = dt.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+    }
+  }
+  const slides = items.map((it, i) => {
+    const name = `${it.title || ""} ${it.issue || ""}`.trim();
+    const cover = it.coverUrl
+      ? `<img class="upc-img" src="${esc(it.coverUrl)}" alt="${esc(name)} cover" loading="lazy" onerror="this.remove()" />`
+      : "";
+    return `<a class="upc-slide${i === upcIndex ? " active" : ""}" href="${esc(it.link || "#")}" target="_blank" rel="noopener">
+      <span class="upc-cover">
+        <span class="upc-ph"><span class="upc-ph-title">${esc(it.title || "")}</span><span class="upc-ph-issue">${esc(it.issue || "")}</span></span>
+        ${cover}
+        <span class="upc-badge">${it.rank === 1 ? "#1 MOST WANTED" : "#" + esc(String(it.rank || i + 1))}</span>
+      </span>
+      <span class="upc-info">
+        <span class="upc-name">${esc(name)}</span>
+        ${it.dateLabel ? `<span class="upc-date">📅 ${esc(it.dateLabel)}</span>` : ""}
+        <span class="upc-why">${esc(it.whyHot || "")}</span>
+        ${it.publisher ? `<span class="upc-pub">${esc(it.publisher)}</span>` : ""}
+      </span>
+    </a>`;
+  }).join("");
+  const dots = items.map((it, i) =>
+    `<button type="button" class="upc-dot${i === upcIndex ? " active" : ""}" data-action="upc-goto" data-idx="${i}" aria-label="Show upcoming comic ${i + 1}"></button>`).join("");
+  return `<section class="upc">
+    <h2 class="upc-title">🚀 HOT UP & COMING — COMICS TO WATCH</h2>
+    ${updated ? `<p class="upc-updated">Updated ${esc(updated)}</p>` : ""}
+    <div class="upc-carousel">
+      <div class="upc-track">
+        ${slides}
+        <button type="button" class="upc-arrow prev" data-action="upc-prev" aria-label="Previous upcoming comic">‹</button>
+        <button type="button" class="upc-arrow next" data-action="upc-next" aria-label="Next upcoming comic">›</button>
+      </div>
+      <div class="upc-dots">${dots}</div>
+    </div>
+    ${d && d.sourceNote ? `<p class="upc-source">${esc(d.sourceNote)}</p>` : ""}
+  </section>`;
+}
+function showUpcomingSlide(i) {
+  document.querySelectorAll(".upc-carousel").forEach((root) => {
+    root.querySelectorAll(".upc-slide").forEach((s, k) => s.classList.toggle("active", k === i));
+    root.querySelectorAll(".upc-dot").forEach((s, k) => s.classList.toggle("active", k === i));
+  });
+}
+function upcStep(dir) {
+  const n = upcItems().length;
+  if (!n) return;
+  upcIndex = (((upcIndex + dir) % n) + n) % n;
+  showUpcomingSlide(upcIndex);
+}
+function wireUpcoming() {
+  if (upcTimer) { clearInterval(upcTimer); upcTimer = null; }
+  const root = document.querySelector(".upc-carousel");
+  if (!root) return;
+  showUpcomingSlide(upcIndex);
+  root.addEventListener("mouseenter", () => { upcPaused = true; });
+  root.addEventListener("mouseleave", () => { upcPaused = false; });
+  root.addEventListener("touchstart", () => { upcPaused = true; }, { passive: true });
+  root.addEventListener("touchend", () => { setTimeout(() => { upcPaused = false; }, 2500); }, { passive: true });
+  upcTimer = setInterval(() => {
+    if (upcPaused || document.hidden) return;
+    upcStep(1);
+  }, 4000);
+}
+
 /* ---------------- events & init ---------------- */
 document.addEventListener("click", (e) => {
   const backdrop = e.target.closest?.("[data-action-backdrop]");
@@ -2803,6 +2907,9 @@ document.addEventListener("click", (e) => {
     case "heat-prev": heatStep(-1); break;
     case "heat-next": heatStep(1); break;
     case "heat-goto": heatIndex = Number(el.dataset.idx) || 0; showHeatSlide(heatIndex); break;
+    case "upc-prev": upcStep(-1); break;
+    case "upc-next": upcStep(1); break;
+    case "upc-goto": upcIndex = Number(el.dataset.idx) || 0; showUpcomingSlide(upcIndex); break;
     case "shelf-filter": shelfFilter = el.dataset.filter; render(); break;
     case "open-detail": openDetail(id); break;
     case "detail-photo": {

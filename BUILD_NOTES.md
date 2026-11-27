@@ -503,6 +503,77 @@ renders; no horizontal overflow (scrollWidth = 390); no JS errors.
 Degradation run with `heat.js` returning 404: no heat section, the
 gallery renders normally, no JS errors.
 
+## Update — Hot Up & Coming (2026-11-27)
+
+**What it is:** "🚀 HOT UP & COMING — COMICS TO WATCH" — a second
+Top 10 carousel in the same visual style as the Heat Monitor,
+rendered DIRECTLY UNDER the Heat Monitor on the GALLERY view and on
+every collector PROFILE page. Like the Heat Monitor and the Signing
+Radar it is visible to EVERYONE, signed in or not — no sign-in gate
+on viewing. It is informational only: no prices, no buying or
+selling, no member data, and it is unaffected by the market-closed
+switch. Only the owner controls the content (it is a static file in
+the repo, like `heat.js`); members cannot change it.
+
+**Data:** `web/upcoming.js` (loaded by `index.html` right after
+`heat.js`) sets:
+
+```js
+window.MCC_UPCOMING = {
+  updatedAt: "<ISO timestamp>",
+  sourceNote: "<one line on where the dates/details came from>",
+  items: [
+    { rank, title, issue, publisher, releaseDate, dateLabel,
+      whyHot, coverUrl, link } // x10, ordered by heat (rank)
+  ]
+};
+```
+
+- `releaseDate` is the ISO date (`YYYY-MM-DD`); `dateLabel` is the
+  human line shown in the slide's date chip, e.g.
+  `"Releases Dec 10, 2026"`. If only a Final Order Cutoff date is
+  known, use it for both and label it `"FOC Nov 30, 2026"` — never
+  present an FOC date as a release date.
+- `whyHot` is ONE line grounded in the source: a first appearance,
+  the writer/artist team, an adaptation tie-in, a variant program,
+  a sequel to a hot book.
+- `link` is the source article/solicitation for that entry; tapping
+  a slide (cover included) opens it in a new tab.
+
+**Sourcing rules (same discipline as the Heat Monitor):**
+
+- Every date comes from a REAL source found during the refresh:
+  publisher solicitations/announcements (DC, Marvel, Image, Dark
+  Horse, BOOM!, IDW), Previews / Diamond / Penguin Random House
+  listings, League of Comic Geeks, Key Collector, comic news.
+  NEVER invent a date, a first appearance, or a cover.
+- `coverUrl` must be the EXACT edition named, from a stable source,
+  and must be verified before use: `curl` it and require HTTP 200
+  plus an image content-type (visually confirm the book when the
+  URL is derived from a pattern, e.g. PRH's UPC-based cover CDN).
+  If no cover verifies, use `coverUrl: null` — the slide renders
+  the placeholder tile. Hotlink-protected hosts (HTTP 403 to curl)
+  do not count as verified.
+
+**Front-end:** `upcomingCarouselHtml()` / `wireUpcoming()` /
+`upcStep()` / `showUpcomingSlide()` in `web/app.js`, styled by the
+`.upc*` block in `web/styles.css` (pink accent so it reads as its
+own panel; the release date sits in a filled blue chip). It mirrors
+the Heat Monitor's mechanics exactly — auto-cycle ~4s, pause on
+hover/touch, arrows + dots, slide classes updated in place — but
+runs on its OWN state (`upcIndex` / `upcTimer` / `upcPaused`), so
+the two carousels on one page cycle independently and neither
+steals focus. Degradation: missing/empty `upcoming.js` → the
+section is omitted entirely; a null or failed cover image →
+placeholder tile; the page never breaks.
+
+**Refresh procedure** (the 8-hour refresh job maintains this
+alongside `heat.js`): research a fresh Top 10 of upcoming books
+most likely to be hot (new #1s, key first appearances, event
+launches, notable variants), rewrite the `items` array and
+`updatedAt` in `web/upcoming.js` keeping the exact field shape,
+verify every cover per the rules above, and push the single file.
+
 ## Update — Market closed switch (2026-11-27)
 
 The owner ordered all buying and selling disabled site-wide until he
@@ -545,12 +616,15 @@ was deleted and no stored data was touched.
   `payment_methods`, `payment_other` and `open_to_trades` verbatim
   (read from the existing row), so closing the Market can never
   rewrite a listing's data; new books save as normal owned books.
+- **My Shelf payouts panel** — the "SELLING PAYOUTS — STRIPE" panel
+  is not rendered while closed (its call site is gated on
+  `MARKET_OPEN`; the Stripe code itself stays in place, on hold).
 - **Action handlers** — `confirmBuy()` and `proposeTrade()` refuse
   with a "Market is closed" notice even if invoked directly.
 
 **Untouched:** stored `status` / prices on every book, the offers and
 orders tables, the My Shelf values panel and private numbers, the
-Stripe payouts panel (payments were never switched on), Friends,
+Stripe build itself (payments were never switched on), Friends,
 Signing Radar, Heat Monitor, and photo ID.
 
 Verified in headless Chrome at 390px with stubbed data in both
