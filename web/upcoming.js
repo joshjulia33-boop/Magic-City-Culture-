@@ -14,7 +14,7 @@
    (coverUrl: null renders the site's placeholder tile), then push
    this single file. */
 window.MCC_UPCOMING = {
-  updatedAt: "2026-11-27T13:05:02Z",
+  updatedAt: "2026-11-27T21:02:52Z",
   sourceNote: "Release dates and details from publisher solicitations and announcements (DC, Marvel, Image, IDW), Previews listings and comic news. Dates can shift — each slide links to its source.",
   items: [
     {
@@ -30,39 +30,28 @@ window.MCC_UPCOMING = {
     },
     {
       rank: 2,
-      title: "Spider-Man Noir",
-      issue: "#1 (Marvel, 2027)",
-      publisher: "Marvel",
-      releaseDate: "2027-02-10",
-      dateLabel: "Releases Feb 10, 2027",
-      whyHot: "First appearance of Venom Noir. Alex Segura & Farid Karami continue the Spider-Noir saga on the page, with Stephen Mooney covers.",
-      coverUrl: "https://shop.thirdeyecomics.com/cdn/shop/files/marvel-comic-books-spider-man-noir-1-cover-a-release-date-02-10-2027-75960621759500111-prh-75960621759500111-1268804182_1300x.jpg",
-      link: "https://icv2.com/articles/news/view/63604/new-spider-man-related-comics-from-marvel"
+      title: "Chainkata",
+      issue: "#2 (Image, 2026)",
+      publisher: "Image",
+      releaseDate: "2026-12-23",
+      dateLabel: "Releases Dec 23, 2026",
+      whyHot: "New entry: the follow-up to the year's biggest launch — #1 sold out its 250K+ first print at the distributor, and the Ito Gotham Central virgin (limited 500) already sold at $119 pre-release per CovrPrice. #1 second printing lands the same day.",
+      coverUrl: null,
+      link: "https://imagecomics.com/press-releases/chainkata-the-biggest-launch-of-the-year-sold-out-ahead-of-this-weeks-launch-rushed-back-to-print"
     },
     {
       rank: 3,
-      title: "Batman",
-      issue: "#17 (DC, 2027)",
-      publisher: "DC",
-      releaseDate: "2027-01-06",
-      dateLabel: "Releases Jan 6, 2027",
-      whyHot: "Matt Fraction & Jorge Jiménez: after Bruce Wayne's “death,” Batman debuts two new identities — one already revealed: Phantom Lord.",
-      coverUrl: "https://bleedingcool.com/wp-content/uploads/2026/11/large-5881180.jpg",
-      link: "https://www.keycollectorcomics.com/issue/batman-1-17-1,935124/"
+      title: "Maximum X-Men",
+      issue: "#1 (Marvel, 2026)",
+      publisher: "Marvel",
+      releaseDate: "2026-12-02",
+      dateLabel: "Releases Dec 2, 2026",
+      whyHot: "Christopher Yost & Tony S. Daniel: with the Avengers gone after Armageddon, Storm and Wolverine assemble Earth's Mightiest Mutants — previewed by AIPT on Nov 27.",
+      coverUrl: "https://images.penguinrandomhouse.com/cover/d/75960621728100111",
+      link: "https://www.marvel.com/comics/issue/138421/maximum_x-men_2026_1"
     },
     {
       rank: 4,
-      title: "Star Wars | Marvel: Hope Assembles",
-      issue: "#1 (Marvel, 2027)",
-      publisher: "Marvel",
-      releaseDate: "2027-01-13",
-      dateLabel: "Releases Jan 13, 2027",
-      whyHot: "The first-ever Star Wars × Marvel crossover, for Star Wars' 50th anniversary — Kevin Smith & David Marquez, with Alex Ross and 1:100 virgin variants.",
-      coverUrl: "https://images.penguinrandomhouse.com/cover/d/75960621652900111",
-      link: "https://bleedingcool.com/comics/official-full-marvel-comics-january-2027-solicits-solicitations/"
-    },
-    {
-      rank: 5,
       title: "Jessica Jones: Alias",
       issue: "#1 (Marvel, 2026)",
       publisher: "Marvel",
@@ -73,18 +62,40 @@ window.MCC_UPCOMING = {
       link: "https://www.marvel.com/articles/comics/jessica-jones-alias-25th-anniversary-series-brian-michael-bendis-michael-gaydos-december-2026"
     },
     {
-      rank: 6,
-      title: "Maximum X-Men",
-      issue: "#1 (Marvel, 2026)",
+      rank: 5,
+      title: "Spider-Man Noir",
+      issue: "#1 (Marvel, 2027)",
       publisher: "Marvel",
-      releaseDate: "2026-12-02",
-      dateLabel: "Releases Dec 2, 2026",
-      whyHot: "Christopher Yost & Tony S. Daniel: with the Avengers gone after Armageddon, Storm assembles Earth's Mightiest Mutants.",
-      coverUrl: "https://images.penguinrandomhouse.com/cover/d/75960621728100111",
-      link: "https://www.marvel.com/comics/issue/138421/maximum_x-men_2026_1"
+      releaseDate: "2027-02-10",
+      dateLabel: "Releases Feb 10, 2027",
+      whyHot: "First appearance of Venom Noir. Alex Segura & Farid Karami continue the Spider-Noir saga on the page, with Stephen Mooney covers.",
+      coverUrl: "https://shop.thirdeyecomics.com/cdn/shop/files/marvel-comic-books-spider-man-noir-1-cover-a-release-date-02-10-2027-75960621759500111-prh-75960621759500111-1268804182_1300x.jpg",
+      link: "https://icv2.com/articles/news/view/63604/new-spider-man-related-comics-from-marvel"
+    },
+    {
+      rank: 6,
+      title: "Star Wars | Marvel: Hope Assembles",
+      issue: "#1 (Marvel, 2027)",
+      publisher: "Marvel",
+      releaseDate: "2027-01-13",
+      dateLabel: "Releases Jan 13, 2027",
+      whyHot: "The first-ever Star Wars × Marvel crossover, for Star Wars' 50th anniversary — Kevin Smith & David Marquez, with Alex Ross and 1:100 virgin variants.",
+      coverUrl: "https://images.penguinrandomhouse.com/cover/d/75960621652900111",
+      link: "https://bleedingcool.com/comics/official-full-marvel-comics-january-2027-solicits-solicitations/"
     },
     {
       rank: 7,
+      title: "Batman",
+      issue: "#17 (DC, 2027)",
+      publisher: "DC",
+      releaseDate: "2027-01-06",
+      dateLabel: "Releases Jan 6, 2027",
+      whyHot: "Matt Fraction & Jorge Jiménez: after Bruce Wayne's “death,” Batman debuts two new identities — one already revealed: Phantom Lord.",
+      coverUrl: "https://bleedingcool.com/wp-content/uploads/2026/11/large-5881180.jpg",
+      link: "https://www.keycollectorcomics.com/issue/batman-1-17-1,935124/"
+    },
+    {
+      rank: 8,
       title: "Angela",
       issue: "#1 (Marvel, 2027)",
       publisher: "Marvel",
@@ -95,26 +106,15 @@ window.MCC_UPCOMING = {
       link: "https://icv2.com/articles/news/view/63892/angela-gets-ongoing-series-marvel"
     },
     {
-      rank: 8,
+      rank: 9,
       title: "Absolute Black Canary",
       issue: "#1 (DC, 2027)",
       publisher: "DC",
       releaseDate: "2027-01-20",
       dateLabel: "Releases Jan 20, 2027",
-      whyHot: "New entry: a brand-new Absolute Universe #1 from DC's January 2027 solicits — Pornsak Pichetshote & Belén Ortega spin Dinah Lance out of Absolute Green Arrow, with a TK foil variant.",
+      whyHot: "A brand-new Absolute Universe #1 from DC's January 2027 solicits — Pornsak Pichetshote & Belén Ortega spin Dinah Lance out of Absolute Green Arrow, with a TK foil variant.",
       coverUrl: null,
       link: "https://bleedingcool.com/comics/official-dc-comics-january-2027-full-solicits-absolute-black-canary/"
-    },
-    {
-      rank: 9,
-      title: "Batman: Reign of Assassins",
-      issue: "#1 (DC, 2027)",
-      publisher: "DC",
-      releaseDate: "2027-02-17",
-      dateLabel: "Releases Feb 17, 2027",
-      whyHot: "John Ridley & Olivier Coipel bring both Batmen — Bruce Wayne and Jace Fox — together for the first time; Dan Mora variant cover.",
-      coverUrl: "https://shop.thirdeyecomics.com/cdn/shop/files/dc-comics-comic-books-batman-reign-of-assassins-1-of-5-cvr-a-olivier-coipel-release-date-02-17-2027-76194137961600111-1226dc0102-1268804897_450x.jpg",
-      link: "https://www.dc.com/blog/2026-11-11/dc-announces-batman-reign-of-assassins"
     },
     {
       rank: 10,
