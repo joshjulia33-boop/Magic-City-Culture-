@@ -1202,3 +1202,57 @@ anywhere. Market stays closed; Stripe untouched.
   badges and no badge row; a 120-book member shows all 12 badges
   including "100 Books", "50 Signed" and "10 Graded"; no horizontal
   overflow at any width; zero JS errors.
+
+## Update — Wall of Grails (2026-11-27)
+
+Every member names ONE book their grail; the Gallery carries a
+**🏆 WALL OF GRAILS** panel showing every member's grail together.
+
+- **Schema** (`supabase/add-grail.sql`, folded into `schema.sql`):
+  `comics.is_grail boolean not null default false`, plus a partial
+  unique index `comics_one_grail_per_collector` on
+  `comics(collector_id) WHERE is_grail` — the database itself
+  guarantees at most one grail per member. `is_grail` is projected
+  (appended last) through `gallery_comics` and `listings`, recreated
+  in the migration from their CURRENT live definitions (the
+  add-admin.sql versions — no `stripe_*` column and no
+  `payouts_enabled` field is referenced anywhere; the Stripe
+  migration has never run live). RLS is unchanged: the owner update
+  policy on comics already covers the flag. `guard_comic_featured`
+  is recreated with `is_grail` in its frozen-column list, so the
+  founder featuring another member's book still cannot move that
+  member's grail. No values or prices are involved anywhere.
+- **Front end**: on your own book's detail page, a **🏆 Make this
+  my Grail** button (or **🏆 This is my Grail — Remove** when it
+  already is). Setting a new grail REPLACES the old one in the only
+  order the unique index allows: the previous grail's `is_grail` is
+  cleared first, then the new book's is set; failures surface via
+  the normal notice. A gold **🏆 GRAIL** badge rides the book's
+  cover everywhere standard cards render (it lives in
+  `badgesHtml`, so Gallery, profiles, My Shelf, Market and search
+  cards all get it). The **WALL OF GRAILS** panel sits on the
+  Gallery under the Featured strip, reusing `galleryCardHtml` (owner
+  name on every card, no prices), ordered founder first, then
+  newest; it renders nothing when no member has set a grail.
+- **Graceful before the SQL runs**: rows simply have no `is_grail`
+  field (the avatar/message-style pattern — `grailsReady` is derived
+  from the returned rows) — no badge, no button, no Wall panel, and
+  the book detail renders exactly as before.
+- **Verified locally**: PGlite (real Postgres) against a simulated
+  LIVE schema (live view definitions, no stripe columns) — the
+  migration applies cleanly twice (idempotent); the partial unique
+  index rejects a second grail for the same collector while
+  allowing different collectors one each; clear-then-set
+  replacement works; both views return `is_grail`. Headless Chrome
+  at 360/390/412/430px with stubbed data mirroring live shapes —
+  owner sets a grail from book detail with the previous grail's
+  clear PATCHed before the new set PATCH, the badge renders on
+  cards, the Wall lists grails with owner names founder-first, the
+  panel is hidden when no grails exist, and pre-migration rows (no
+  `is_grail` field) render with zero JS errors and no overflow.
+  (Counts for both suites are in the feature report.)
+- **Remaining step**: run `supabase/add-grail.sql` in the Supabase
+  SQL Editor (handled separately). Verify with
+  `select count(*) from public.comics where is_grail;`. Until then
+  the live site behaves exactly as before. Market stays closed;
+  Stripe untouched.

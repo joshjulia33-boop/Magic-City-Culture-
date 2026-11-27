@@ -314,6 +314,7 @@ nav.main-nav {
 .badge.sale { background: var(--accent); color: #fff; }
 .badge.sold { background: #55517e; color: #fff; }
 .badge.trade { background: #00e5a0; color: #000; }
+.badge.grail { background: #f5c542; color: #000; border: 1px solid #000; }
 
 /* milestone badges: earned-only chips on collector cards & profiles.
    Compact, dark fill with a neon border/text accent per category;
@@ -696,6 +697,8 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .pick-row .pick-tag { font-size: 10px; font-weight: 800; letter-spacing: 0.06em; color: var(--blue); }
 /* admin (founder only) + featured strip */
 .featured-strip { margin-top: 1.25rem; }
+.grail-wall { margin-top: 1.25rem; }
+.grail-wall .view-sub { overflow-wrap: break-word; }
 .admin-row {
   display: flex; align-items: center; gap: 0.65rem; width: 100%; text-align: left;
   border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.55rem;

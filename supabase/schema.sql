@@ -305,6 +305,10 @@ create table if not exists public.comics (
   -- design like the rest of this table; changeable ONLY by the
   -- founder, on any row — enforced by the guard trigger further down.
   is_featured         boolean not null default false,
+  -- The ONE book the member calls their grail (see add-grail.sql).
+  -- Public by design like the rest of this table; the partial unique
+  -- index below guarantees at most one grail per member.
+  is_grail            boolean not null default false,
   status              text not null default 'owned'
                       check (status in ('owned', 'for_sale', 'sold', 'wishlist')),
   cover_color         text not null default '#FF2E88',
@@ -323,6 +327,10 @@ create table if not exists public.comics (
 
 create index if not exists comics_collector_idx on public.comics (collector_id);
 create index if not exists comics_status_idx on public.comics (status);
+-- At most ONE grail per member, enforced by the database itself.
+create unique index if not exists comics_one_grail_per_collector
+  on public.comics (collector_id)
+  where is_grail;
 
 drop trigger if exists comics_touch_updated_at on public.comics;
 create trigger comics_touch_updated_at
@@ -402,6 +410,7 @@ begin
        or new.payment_methods is distinct from old.payment_methods
        or new.payment_other is distinct from old.payment_other
        or new.open_to_trades is distinct from old.open_to_trades
+       or new.is_grail is distinct from old.is_grail
        or new.status is distinct from old.status
        or new.cover_color is distinct from old.cover_color
        or new.cover_url is distinct from old.cover_url
@@ -1231,7 +1240,8 @@ select cm.id,
        cm.payment_other,
        cm.open_to_trades,
        col.stripe_payouts_enabled as collector_payouts_enabled,
-       cm.is_featured
+       cm.is_featured,
+       cm.is_grail
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 left join public.comic_values cv on cv.comic_id = cm.id;
@@ -1255,7 +1265,8 @@ select cm.id as comic_id,
        cm.payment_other,
        cm.open_to_trades,
        col.stripe_payouts_enabled as seller_payouts_enabled,
-       cm.is_featured
+       cm.is_featured,
+       cm.is_grail
 from public.comics cm
 join public.collectors col on col.id = cm.collector_id
 where cm.status = 'for_sale';

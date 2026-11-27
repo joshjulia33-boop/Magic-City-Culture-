@@ -207,6 +207,7 @@ let detailCommentsFor = null;    // comic id detailComments belongs to
 let commentsReady = true;        // false until the book_comments table exists (add-comments.sql)
 let allFollows = [];             // follows rows — public, drives the counts (add-follows.sql)
 let followsReady = true;         // false until the follows table exists (add-follows.sql)
+let grailsReady = true;          // false until comics.is_grail exists (add-grail.sql)
 let avatarReady = true;          // false until collectors.avatar_url exists (add-avatar.sql)
 let msgStyleReady = true;        // false until collectors.msg_color/msg_font exist (add-message-style.sql)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
@@ -331,6 +332,9 @@ function avatarHtml(p, size = "md") {
 }
 function badgesHtml(c) {
   let h = "";
+  // The member's one grail (add-grail.sql). is_grail is simply absent
+  // until that SQL runs, so the badge stays off every card before then.
+  if (c.is_grail) h += `<span class="badge grail">🏆 GRAIL</span>`;
   if (c.is_signed) h += `<span class="badge signed">SIGNED</span>`;
   if (c.has_coa) h += `<span class="badge coa">COA</span>`;
   if (c.has_remark) h += `<span class="badge remark">REMARQUED</span>`;
@@ -465,6 +469,11 @@ async function loadPublic() {
   gallery = g.data || [];
   profiles = p.data || [];
   listings = l.data || [];
+  // Until add-grail.sql runs, gallery/listings rows have no is_grail
+  // key at all — the Grail button, badge and Wall then stay hidden,
+  // exactly like the other one-time updates' missing fields.
+  const grailSample = gallery[0] || listings[0];
+  if (grailSample) grailsReady = "is_grail" in grailSample;
   await loadBookSocial();
 }
 // Likes load with the public data and never break it: until
@@ -517,6 +526,7 @@ async function loadMine() {
   if (c.error) throw c.error;
   if (o.error) throw o.error;
   myComics = c.data || [];
+  if (myComics.length) grailsReady = "is_grail" in myComics[0];
   if (myComics.length) {
     const ids = myComics.map((x) => x.id);
     const { data: vals, error: vErr } = await sb.from("comic_values").select("*").in("comic_id", ids);
@@ -759,6 +769,26 @@ function featuredStripHtml() {
     ${members.length ? `<div class="collector-list">${members.map(featuredMemberCardHtml).join("")}</div>` : ""}
   </section>`;
 }
+/* ---------------- wall of grails ----------------
+   Every member's ONE grail book (comics.is_grail — see
+   ../supabase/add-grail.sql; the database allows at most one per
+   member), shown on the Gallery as the standard gallery cards, which
+   already carry the owner's name and never a price or value. The
+   founder's grail leads, then the newest books first. Until the SQL
+   runs is_grail is absent from every row and the panel renders
+   nothing; it also renders nothing when nobody has picked a grail. */
+function wallOfGrailsHtml() {
+  const grails = gallery.filter((c) => c.is_grail);
+  if (!grails.length) return "";
+  const sorted = [...grails].sort((a, b) =>
+    Number(!!b.collector_is_founder) - Number(!!a.collector_is_founder)
+    || String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  return `<section class="grail-wall">
+    <h2 class="heat-title">🏆 WALL OF GRAILS</h2>
+    <p class="view-sub">The one book each member calls their grail — the crown of their shelf.</p>
+    <div class="grid">${sorted.map(galleryCardHtml).join("")}</div>
+  </section>`;
+}
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -804,6 +834,7 @@ function viewGalleryHtml() {
     </div>
   </section>
   ${featuredStripHtml()}
+  ${wallOfGrailsHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
   <section>
@@ -2348,6 +2379,58 @@ function deleteComment(commentId) {
     }
   });
 }
+/* ---------------- my grail ----------------
+   Setting a grail replaces the old one: the database's partial
+   unique index allows only ONE grail per member, so the previous
+   grail is cleared FIRST and the new one set second — the reverse
+   order would be rejected. Both writes go through the normal owner
+   update policy on comics; local state is then synced so the badge
+   and the Wall update without a reload. Until add-grail.sql runs
+   the button never renders (rows have no is_grail field), and this
+   handler quietly no-ops if it is somehow reached anyway. */
+async function toggleGrail(comicId) {
+  if (!myProfile || busy) return;
+  const c = detailComic(comicId);
+  if (!c || c.collector_id !== myProfile.id) return;
+  if (!grailsReady || !("is_grail" in c)) {
+    setNotice("Grails are being switched on — try again soon.");
+    return;
+  }
+  busy = true;
+  try {
+    if (c.is_grail) {
+      const { error } = await sb.from("comics").update({ is_grail: false }).eq("id", comicId);
+      if (error) throw error;
+    } else {
+      const prev = gallery.find((x) => x.collector_id === myProfile.id && x.is_grail && x.id !== comicId)
+        || myComics.find((x) => x.is_grail && x.id !== comicId);
+      if (prev) {
+        const { error } = await sb.from("comics").update({ is_grail: false }).eq("id", prev.id);
+        if (error) throw error;
+      }
+      const { error } = await sb.from("comics").update({ is_grail: true }).eq("id", comicId);
+      if (error) throw error;
+    }
+    const nowGrail = !c.is_grail;
+    for (const row of gallery) {
+      if (row.collector_id === myProfile.id && "is_grail" in row) row.is_grail = nowGrail && row.id === comicId;
+    }
+    for (const row of myComics) {
+      if ("is_grail" in row) row.is_grail = nowGrail && row.id === comicId;
+    }
+    for (const row of listings) {
+      if (row.seller_id === myProfile.id && "is_grail" in row) row.is_grail = nowGrail && row.comic_id === comicId;
+    }
+    setNotice(nowGrail ? "🏆 Grail set — it's up on the Wall of Grails." : "Grail removed — pick another book any time.");
+    render();
+    const fresh = detailComic(comicId);
+    if (fresh) renderDetailModal(fresh);
+  } catch (ex) {
+    setNotice(ex.message || "That grail change didn't save — try again.");
+  } finally {
+    busy = false;
+  }
+}
 function renderDetailModal(c) {
   const mine = myProfile && c.collector_id === myProfile.id;
   openModal(`
@@ -2375,6 +2458,7 @@ function renderDetailModal(c) {
               ? `<p class="form-note">This is your listing.</p>`
               : `<div class="row-actions"><button type="button" class="btn btn-pink" data-action="buy" data-id="${c.id}">BUY IT — ${esc(money(c.asking_price_cents))}</button>${c.open_to_trades ? `<button type="button" class="btn btn-blue" data-action="propose-trade" data-id="${c.id}">PROPOSE A TRADE</button>` : ""}</div>`)
           : ""}
+        ${mine && grailsReady && "is_grail" in c ? `<div class="row-actions"><button type="button" class="btn ${c.is_grail ? "btn-ghost" : "btn-pink"}" data-action="toggle-grail" data-id="${c.id}">${c.is_grail ? "🏆 This is my Grail — Remove" : "🏆 Make this my Grail"}</button></div>` : ""}
         ${user && myProfile && !mine && adminReady ? `<div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="report-book" data-id="${c.id}">REPORT THIS BOOK</button></div>` : ""}
       </div>
     </div>
@@ -4125,6 +4209,7 @@ document.addEventListener("click", (e) => {
     case "shelf-filter": shelfFilter = el.dataset.filter; render(); break;
     case "open-detail": openDetail(id); break;
     case "toggle-like": toggleLike(id); break;
+    case "toggle-grail": toggleGrail(id); break;
     case "delete-comment": deleteComment(id); break;
     case "detail-photo": {
       const main = $("#detail-photo-main");
