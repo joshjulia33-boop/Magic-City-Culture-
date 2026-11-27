@@ -199,6 +199,12 @@ let msgPickerOpen = false;       // inbox: "new message" member picker showing
 let msgDraft = "";               // send-box text, kept across the quiet refresh
 let msgTimer = null;             // messages view: 15s quiet-refresh interval
 let msgRefreshing = false;       // messages view: refresh re-entrancy guard
+let bookLikes = [];              // book_likes rows — public with the book (add-comments.sql)
+let likesReady = true;           // false until the book_likes table exists
+let detailComicId = null;        // comic whose detail modal is open, or null
+let detailComments = [];         // comments loaded for the open detail book
+let detailCommentsFor = null;    // comic id detailComments belongs to
+let commentsReady = true;        // false until the book_comments table exists (add-comments.sql)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -318,6 +324,56 @@ function coverHtml(c, large = false) {
   }
   return `<div class="cover tile ${large ? "large" : ""}" style="background:${esc(c.cover_color || "#FF2E88")}">${tileInnerHtml(c)}</div>`;
 }
+/* ---------------- likes & comments ----------------
+   Likes and comments are public with the book (see
+   ../supabase/add-comments.sql): anyone can read the counts and the
+   threads; members like/unlike and comment as themselves; a comment
+   is deleted by its author or by the founder. Until that SQL runs,
+   likesReady / commentsReady are false and all of this stays quietly
+   out of the way — no buttons, no section, no errors. Nothing here
+   ever touches a book's values. */
+function likeCountFor(comicId) {
+  return bookLikes.reduce((n, l) => n + (l.comic_id === comicId ? 1 : 0), 0);
+}
+function iLiked(comicId) {
+  return !!myProfile && bookLikes.some((l) => l.comic_id === comicId && l.collector_id === myProfile.id);
+}
+function likeButtonHtml(c) {
+  if (!likesReady) return "";
+  const n = likeCountFor(c.id);
+  const liked = iLiked(c.id);
+  return `<button type="button" class="like-btn${liked ? " liked" : ""}" data-action="toggle-like" data-id="${c.id}" aria-pressed="${liked}" aria-label="${liked ? "Unlike" : "Like"} ${esc(c.title)} ${esc(c.issue)} — ${n} like${n === 1 ? "" : "s"}"><span class="like-heart" aria-hidden="true">${liked ? "♥" : "♡"}</span><span class="like-count">${n}</span></button>`;
+}
+async function toggleLike(comicId) {
+  if (!likesReady) return;
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  if (busy) return;
+  busy = true;
+  try {
+    if (iLiked(comicId)) {
+      const { error } = await sb.from("book_likes").delete()
+        .eq("comic_id", comicId).eq("collector_id", myProfile.id);
+      if (error) throw error;
+      bookLikes = bookLikes.filter((l) => !(l.comic_id === comicId && l.collector_id === myProfile.id));
+    } else {
+      const { error } = await sb.from("book_likes").insert({ comic_id: comicId, collector_id: myProfile.id });
+      if (error) throw error;
+      bookLikes.push({ comic_id: comicId, collector_id: myProfile.id, created_at: new Date().toISOString() });
+    }
+    render();
+    // If this book's page is open over the view, refresh it in place
+    // so the heart and count there agree with the card behind it.
+    if (detailComicId === comicId) {
+      const c = detailComic(comicId);
+      if (c) renderDetailModal(c);
+    }
+  } catch (ex) {
+    setNotice(ex.message || "That like didn't stick — try again.");
+  } finally {
+    busy = false;
+  }
+}
 function galleryCardHtml(c) {
   return `<article class="card">
     <button type="button" class="cover-btn" data-action="open-detail" data-id="${c.id}" aria-label="View ${esc(c.title)} ${esc(c.issue)} from ${esc(c.collector_name)}'s shelf">${coverHtml(c)}</button>
@@ -327,6 +383,7 @@ function galleryCardHtml(c) {
       ${c.current_value_cents != null ? `<p class="worth">Worth ${esc(money(c.current_value_cents))}</p>` : ""}
       ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null ? `<p class="forsale">FOR SALE — ${esc(money(c.asking_price_cents))}</p>` : ""}
       ${c.status === "sold" ? `<p class="sold-tag">SOLD</p>` : ""}
+      ${likeButtonHtml(c)}
     </div>
   </article>`;
 }
@@ -343,7 +400,7 @@ function openModal(html, wide = false) {
     <div class="modal ${wide ? "wide" : ""}" role="dialog" aria-modal="true">${html}</div>
   </div>`;
 }
-function closeModal() { $("#modal-slot").innerHTML = ""; }
+function closeModal() { $("#modal-slot").innerHTML = ""; detailComicId = null; }
 function modalHead(title) {
   return `<button type="button" class="modal-x" data-action="close-modal" aria-label="Close">✕</button><h3>${esc(title)}</h3>`;
 }
@@ -361,6 +418,19 @@ async function loadPublic() {
   gallery = g.data || [];
   profiles = p.data || [];
   listings = l.data || [];
+  await loadBookSocial();
+}
+// Likes load with the public data and never break it: until
+// supabase/add-comments.sql runs, the book_likes table doesn't exist
+// and the like buttons simply stay off the cards. The comments table
+// is only probed here (one row) — a book's thread loads when its
+// page opens.
+async function loadBookSocial() {
+  const { data, error } = await sb.from("book_likes").select("*").limit(5000);
+  if (error) { likesReady = false; bookLikes = []; }
+  else { likesReady = true; bookLikes = data || []; }
+  const probe = await sb.from("book_comments").select("id").limit(1);
+  commentsReady = !probe.error;
 }
 async function resolveMyProfile() {
   myProfile = null;
@@ -735,6 +805,7 @@ function viewMarketHtml() {
         <button type="button" class="owner-link" data-action="goto-profile" data-id="${l.seller_id}">${esc(l.seller_name)}</button>
         <p class="forsale">${esc(money(l.asking_price_cents))}</p>
         ${pays ? `<p class="pay-line">Accepts: ${esc(pays)}</p>` : ""}
+        ${likeButtonHtml({ ...l, id: l.comic_id })}
         ${mine
           ? `<p class="sold-tag">YOUR LISTING</p>`
           : `<div class="trade-row">
@@ -1564,6 +1635,7 @@ function viewShelfHtml() {
       <div class="card-body">
         <p class="title">${esc(c.title)} ${esc(c.issue)}</p>
         ${v && v.current_value_cents != null ? `<p class="worth">${esc(money(v.current_value_cents))}</p>` : ""}
+        ${likeButtonHtml(c)}
         ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null ? `<p class="forsale">LISTED — ${esc(money(c.asking_price_cents))}</p>` : ""}
         ${c.status === "sold" ? `<p class="sold-tag">SOLD</p>` : ""}
       </div>
@@ -1945,12 +2017,110 @@ function detailGalleryHtml(c) {
     <p class="form-note" style="margin:0">${photos.length} photo${photos.length === 1 ? "" : "s"} — cover first, then the back, corners and pages.</p>
   </div>`;
 }
-function openDetail(comicId) {
-  const c = gallery.find((x) => x.id === comicId) || (() => {
+function detailComic(comicId) {
+  return gallery.find((x) => x.id === comicId) || (() => {
     const l = listings.find((x) => x.comic_id === comicId);
     return l ? { ...l, id: l.comic_id, collector_id: l.seller_id, collector_name: l.seller_name, collector_handle: l.seller_handle, status: "for_sale", current_value_cents: null, created_at: l.listed_at } : null;
   })();
-  if (!c) return;
+}
+/* ---------------- comments on a book ----------------
+   The thread on a book's page: oldest first (chat order), the post
+   box at the bottom. Anyone can read; members post as themselves;
+   the delete control rides on your own comments — and on EVERY
+   comment for the founder, who moderates (the database enforces
+   exactly that split). */
+function commentsSectionHtml(c) {
+  if (!commentsReady) return "";
+  const rows = detailCommentsFor === c.id ? detailComments : [];
+  const list = rows.length ? rows.map((cm) => {
+    const a = profileById(cm.author_id);
+    const mine = !!myProfile && cm.author_id === myProfile.id;
+    const canDelete = mine || !!myProfile?.is_founder;
+    return `<div class="comment-row">
+      ${a ? avatarHtml(a, "sm") : `<span class="avatar sm" style="background:#55517e" aria-hidden="true">?</span>`}
+      <div class="comment-main">
+        <p class="comment-meta">${a ? `<button type="button" class="owner-link" data-action="goto-profile" data-id="${a.id}">${esc(a.display_name)}</button> <span class="comment-handle">@${esc(a.handle)}</span>` : `<span class="comment-handle">A collector</span>`} <span class="comment-when">${esc(msgWhen(cm.created_at))}</span></p>
+        <p class="comment-body">${esc(cm.body)}</p>
+      </div>
+      ${canDelete ? `<button type="button" class="btn btn-ghost btn-sm comment-del" data-action="delete-comment" data-id="${cm.id}" aria-label="Delete this comment">DELETE</button>` : ""}
+    </div>`;
+  }).join("") : `<p class="empty" style="padding:.75rem 0">No comments yet — be the first to say something about this book.</p>`;
+  const form = user && myProfile
+    ? `<form id="comment-form" class="msg-send comment-form">
+        <label class="sr-only" for="comment-input" style="position:absolute;left:-9999px">Comment on ${esc(c.title)} ${esc(c.issue)}</label>
+        <input id="comment-input" class="input" type="text" autocomplete="off" maxlength="1000" placeholder="Add a comment…" />
+        <button type="submit" class="btn btn-pink">POST</button>
+      </form>
+      <p class="form-error" id="comment-error"></p>`
+    : `<p class="form-note" style="margin-top:.6rem">${user ? "Create your collector profile to join the conversation." : "Sign in to join the conversation."}</p>`;
+  return `<div class="comments">
+    <h4 class="comments-title">COMMENTS (${rows.length})</h4>
+    <div class="comment-list">${list}</div>
+    ${form}
+  </div>`;
+}
+async function loadDetailComments(comicId) {
+  const { data, error } = await sb.from("book_comments")
+    .select("*").eq("comic_id", comicId)
+    .order("created_at", { ascending: true }).limit(500);
+  if (error) { commentsReady = false; return; }
+  detailComments = data || [];
+  detailCommentsFor = comicId;
+}
+async function postComment(c) {
+  if (busy || !myProfile) return;
+  const input = $("#comment-input");
+  const body = (input?.value || "").trim();
+  const err = $("#comment-error");
+  if (!body) { if (err) err.textContent = "Write something first."; return; }
+  busy = true;
+  try {
+    const { error } = await sb.from("book_comments").insert({
+      comic_id: c.id,
+      author_id: myProfile.id,
+      body,
+    });
+    if (error) throw error;
+    await loadDetailComments(c.id);
+    if (detailComicId === c.id) renderDetailModal(c);
+  } catch (ex) {
+    const e2 = $("#comment-error");
+    if (e2) e2.textContent = ex.message || "That comment didn't post — try again.";
+  } finally {
+    busy = false;
+  }
+}
+function deleteComment(commentId) {
+  const cm = detailComments.find((x) => x.id === commentId);
+  if (!cm || busy) return;
+  const c = detailComic(cm.comic_id);
+  openModal(`
+    ${modalHead("DELETE THIS COMMENT?")}
+    <p style="font-size:15px">“${esc(cm.body)}”</p>
+    <p class="form-note">This can't be undone.</p>
+    <p class="form-error" id="cdel-error"></p>
+    <div class="row-actions">
+      <button type="button" class="btn btn-danger" id="cdel-confirm">DELETE IT</button>
+      <button type="button" class="btn btn-ghost" id="cdel-cancel">KEEP IT</button>
+    </div>`);
+  $("#cdel-cancel").addEventListener("click", () => { if (c) openDetail(c.id); else closeModal(); });
+  $("#cdel-confirm").addEventListener("click", async () => {
+    busy = true;
+    try {
+      const { error } = await sb.from("book_comments").delete().eq("id", commentId);
+      if (error) throw error;
+      await loadDetailComments(cm.comic_id);
+      setNotice("Comment deleted.");
+      if (c) openDetail(c.id); else closeModal();
+    } catch (ex) {
+      const e2 = $("#cdel-error");
+      if (e2) e2.textContent = ex.message || "Couldn't delete that comment.";
+    } finally {
+      busy = false;
+    }
+  });
+}
+function renderDetailModal(c) {
   const mine = myProfile && c.collector_id === myProfile.id;
   openModal(`
     ${modalHead(`${c.title} ${c.issue}`)}
@@ -1966,6 +2136,7 @@ function openDetail(comicId) {
         <p><span class="k">Remark</span>${c.has_remark ? "Yes" : "No"}</p>
         ${coverTypesOf(c).length ? `<p><span class="k">Cover</span>${esc(coverTypesOf(c).join(", "))}</p>` : ""}
         <p><span class="k">Collector</span><button type="button" class="owner-link" data-action="goto-profile" data-id="${c.collector_id}">${esc(c.collector_name)}</button></p>
+        ${likesReady ? `<div class="like-row">${likeButtonHtml(c)}<span class="like-note">${likeCountFor(c.id) === 1 ? "1 collector likes this book" : `${likeCountFor(c.id)} collectors like this book`}</span></div>` : ""}
         ${c.current_value_cents != null ? `<p><span class="k">Current value (shared by the collector)</span>${esc(money(c.current_value_cents))}</p>` : ""}
         ${MARKET_OPEN && c.status === "for_sale" && c.asking_price_cents != null ? `<p><span class="k">Asking price</span><strong style="color:var(--accent)">${esc(money(c.asking_price_cents))}</strong></p>` : ""}
         ${MARKET_OPEN && c.status === "for_sale" ? `<p><span class="k">Payment methods</span>${paymentLabel(c) ? esc(paymentLabel(c)) : "Arrange with the seller"}</p>` : ""}
@@ -1978,7 +2149,24 @@ function openDetail(comicId) {
           : ""}
         ${user && myProfile && !mine && adminReady ? `<div class="row-actions"><button type="button" class="btn btn-ghost btn-sm" data-action="report-book" data-id="${c.id}">REPORT THIS BOOK</button></div>` : ""}
       </div>
-    </div>`, true);
+    </div>
+    ${commentsSectionHtml(c)}`, true);
+  const form = $("#comment-form");
+  if (form) form.addEventListener("submit", (e) => { e.preventDefault(); postComment(c); });
+}
+function openDetail(comicId) {
+  const c = detailComic(comicId);
+  if (!c) return;
+  if (detailComicId !== comicId) { detailComments = []; detailCommentsFor = null; }
+  detailComicId = comicId;
+  renderDetailModal(c);
+  // The page opens at once; the thread loads a beat behind it and
+  // re-renders the modal only if this book is still the open one.
+  if (commentsReady) {
+    loadDetailComments(comicId).then(() => {
+      if (detailComicId === comicId) renderDetailModal(c);
+    });
+  }
 }
 
 /* ---------------- auth ---------------- */
@@ -3520,6 +3708,8 @@ document.addEventListener("click", (e) => {
     case "upc-goto": upcIndex = Number(el.dataset.idx) || 0; showUpcomingSlide(upcIndex); break;
     case "shelf-filter": shelfFilter = el.dataset.filter; render(); break;
     case "open-detail": openDetail(id); break;
+    case "toggle-like": toggleLike(id); break;
+    case "delete-comment": deleteComment(id); break;
     case "detail-photo": {
       const main = $("#detail-photo-main");
       if (main && el.dataset.url) {

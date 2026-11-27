@@ -1052,6 +1052,84 @@ create trigger messages_guard_update
   for each row execute function public.guard_message_update();
 
 -- ----------------------------------------------------------------------------
+-- book_likes / book_comments — likes and comments on books (see
+-- add-comments.sql). Both are PUBLIC with the book: anyone, signed
+-- in or not, can read like counts and comment threads; they expose
+-- nothing private (no values are involved). A like is one row per
+-- member per book — the (comic_id, collector_id) primary key makes
+-- a duplicate like impossible, and unliking deletes your own row.
+-- Likes insert/delete only as yourself. Comments insert only as
+-- yourself and are never editable (no update policy or grant);
+-- deletion is by the comment's author or by the founder, who
+-- moderates any comment.
+-- ----------------------------------------------------------------------------
+create table if not exists public.book_likes (
+  comic_id     uuid not null references public.comics (id) on delete cascade,
+  collector_id uuid not null references public.collectors (id) on delete cascade,
+  created_at   timestamptz not null default now(),
+  primary key (comic_id, collector_id)
+);
+
+create index if not exists book_likes_collector_idx
+  on public.book_likes (collector_id);
+
+alter table public.book_likes enable row level security;
+
+drop policy if exists "book_likes: public read" on public.book_likes;
+create policy "book_likes: public read"
+  on public.book_likes for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "book_likes: member likes" on public.book_likes;
+create policy "book_likes: member likes"
+  on public.book_likes for insert
+  to authenticated
+  with check (collector_id = public.current_collector_id());
+
+drop policy if exists "book_likes: member unlikes" on public.book_likes;
+create policy "book_likes: member unlikes"
+  on public.book_likes for delete
+  to authenticated
+  using (collector_id = public.current_collector_id());
+
+create table if not exists public.book_comments (
+  id         uuid primary key default gen_random_uuid(),
+  comic_id   uuid not null references public.comics (id) on delete cascade,
+  author_id  uuid not null references public.collectors (id) on delete cascade,
+  body       text not null check (char_length(btrim(body)) > 0),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists book_comments_comic_idx
+  on public.book_comments (comic_id, created_at);
+create index if not exists book_comments_author_idx
+  on public.book_comments (author_id);
+
+alter table public.book_comments enable row level security;
+
+drop policy if exists "book_comments: public read" on public.book_comments;
+create policy "book_comments: public read"
+  on public.book_comments for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "book_comments: member comments" on public.book_comments;
+create policy "book_comments: member comments"
+  on public.book_comments for insert
+  to authenticated
+  with check (author_id = public.current_collector_id());
+
+drop policy if exists "book_comments: author or founder deletes" on public.book_comments;
+create policy "book_comments: author or founder deletes"
+  on public.book_comments for delete
+  to authenticated
+  using (
+    author_id = public.current_collector_id()
+    or public.is_founder_collector()
+  );
+
+-- ----------------------------------------------------------------------------
 -- Public views (curated projections — the only public read paths that touch
 -- collectors and comic_values)
 -- ----------------------------------------------------------------------------
@@ -1146,6 +1224,13 @@ grant select, insert, update on public.reports to authenticated;
 
 -- messages: select/insert/update only — deliberately no delete grant.
 grant select, insert, update on public.messages to authenticated;
+
+-- likes & comments: public read (anon included); members write.
+-- Comments get no update grant — they can never be edited.
+grant select on public.book_likes to anon, authenticated;
+grant insert, delete on public.book_likes to authenticated;
+grant select on public.book_comments to anon, authenticated;
+grant insert, delete on public.book_comments to authenticated;
 
 grant select on public.public_profiles to anon, authenticated;
 grant select on public.gallery_comics to anon, authenticated;

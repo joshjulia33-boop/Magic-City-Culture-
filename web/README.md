@@ -90,6 +90,17 @@ host — no build step, no server of its own.
   their own rows, send only as themselves, and the only change anyone
   can ever make to a sent message is the recipient marking it read.
   Not even the founder can read a conversation he isn't part of.
+- **Comments & Likes** — every book card (Gallery, profiles, Market,
+  My Shelf) and every book's page carries a ♥ like button with the
+  live count; members tap to like/unlike (theirs shows filled),
+  visitors see the count and get the join flow when they tap. A
+  book's page ends in a **Comments** thread — avatar, name/@handle,
+  time, text, oldest first — readable by everyone; members post from
+  the box at the bottom, authors can delete their own comments, and
+  the founder can delete any comment (moderation). All of it is
+  enforced in the database (`supabase/add-comments.sql`): likes and
+  comments are public reads, writes are only ever as yourself, and
+  comments can never be edited. No values are involved.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).

@@ -850,3 +850,67 @@ regardless and touches no listing/price logic.)
 - **Remaining step**: run `supabase/add-messages.sql` in the Supabase
   SQL Editor (handled separately). Until then the live site behaves
   exactly as before.
+
+## Update — Comments & Likes on books (2026-11-27)
+
+Every book can now be liked, and every book's page carries a comment
+thread — the community layer the comparison pass recommended third.
+
+- **Database** (`supabase/add-comments.sql`, also folded into
+  schema.sql): `public.book_likes` (comic_id + collector_id, the
+  pair as primary key — a duplicate like is impossible; unliking
+  deletes your own row) and `public.book_comments` (id, comic_id,
+  author_id, body, created_at; blank bodies rejected by a check).
+  Both are **public reads** (`to anon, authenticated`): like counts
+  and threads are part of the book's public page and expose nothing
+  private — no values are involved anywhere. Writes are narrowed
+  hard: likes INSERT/DELETE only as yourself; comments INSERT only
+  as yourself; comment DELETE by the author **or the founder**
+  (`public.is_founder_collector()` — moderation). There is no
+  UPDATE policy and no update grant on comments: a posted comment
+  can never be edited, by anyone. The migration is written against
+  the LIVE schema: it touches no existing view and no `stripe_*`
+  column.
+- **Front end**: a compact ♥ pill (heart + live count, filled pink
+  when yours) in every book card — Gallery, profiles, the featured
+  strip, My Shelf, and Market listings — and in the book page's meta
+  column, where the card behind and the page always agree (toggling
+  in the modal re-renders both). Signed-in members like/unlike;
+  signed-out visitors see the count and tapping opens the join flow;
+  a signed-in member without a profile gets the profile form. The
+  book page gains a **COMMENTS (n)** section under the detail grid:
+  rows of avatar + name/@handle + time + text, **oldest first**
+  (chat order, matching Messages), a post box for members, a
+  sign-in note instead for visitors. Delete rides on your own
+  comments and on every comment for the founder, behind the site's
+  usual confirm modal, and returns you to the book page. Likes load
+  with the public data (one `book_likes` read); a book's thread
+  loads when its page opens and re-renders the modal only if that
+  book is still open.
+- **Graceful before the SQL runs**: if either table is missing, the
+  like buttons stay off the cards and the book page shows no like
+  row or comments section — the rest of the site is untouched.
+  Market stays closed; Stripe untouched; no values anywhere.
+- **Verified locally**: PGlite (real Postgres) — schema + migration
+  apply cleanly and idempotently, **25/25 checks** (like/unlike only
+  as self; duplicate like dies on the PK; comment only as self;
+  blank comment rejected; author deletes own; another member cannot
+  delete; founder deletes any; NOBODY can edit a comment, founder
+  included; anon reads both tables but writes neither; deleting a
+  book cascades its likes and comments). Headless Chrome with
+  stubbed Supabase — **94/94 checks** across member sessions at
+  **360px, 390px and 412px**, a founder session, and signed-out
+  sessions at 390px and 360px: card count starts at the stubbed 2,
+  like → 3 filled, unlike → 2; detail-page like keeps the card
+  behind in agreement; the thread renders, a posted comment appears
+  with the header count growing, own-comment delete works through
+  the confirm, the founder sees DELETE on every comment and removes
+  another member's, signed-out visitors read the thread with the
+  sign-in note and get the join flow from the like button (nothing
+  written); plus **12/12** on a degraded run with both tables
+  missing (no buttons, no section, no errors). At every width: no
+  horizontal overflow, the modal fits inside the viewport, no JS
+  errors.
+- **Remaining step**: run `supabase/add-comments.sql` in the Supabase
+  SQL Editor (handled separately). Until then the live site behaves
+  exactly as before.
