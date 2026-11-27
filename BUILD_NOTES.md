@@ -1166,3 +1166,39 @@ the logo artwork, never instead of it.
   behind the hero and panels; nothing competes with content.
   (Harness: `hidden_files/titles-test/` in the website goal
   workspace.)
+
+## Update — Milestone badges (2026-11-27)
+
+Earned-only milestone badges on collector cards and profile pages,
+computed in the front end from a member's PUBLIC counts — the same
+gallery-derived counts those surfaces already show (books, signed
+via `is_signed`, graded via `isGraded()` on the stored grade). Pure
+front-end: NO database change, no migration, no values or prices
+anywhere. Market stays closed; Stripe untouched.
+
+- **Thresholds** (`MILESTONE_THRESHOLDS` in `web/app.js`): books
+  1/10/25/50/100 → "First Book", "10 Books", "25 Books", "50 Books",
+  "100 Books"; signed 1/10/25/50 → "First Signed", "10 Signed",
+  "25 Signed", "50 Signed"; graded 1/5/10 → "First Graded",
+  "5 Graded", "10 Graded". ALL earned thresholds show (not just the
+  highest per category) — worst case today is 11 chips.
+- **Where they render**: `milestoneBadgesHtml(counts)` (fed by
+  `publicCountsForBooks()` / the collectors view's counts map) on
+  (1) Collectors-view collector cards, (2) featured-strip member
+  cards on the Gallery, and (3) profile pages, directly under the
+  existing stat chips. A member with zero books earns nothing and
+  renders no badge row at all — no empty section.
+- **Style** (`.milestone-badges` / `.milestone-badge` in
+  `web/styles.css`): compact pill chips, dark fill (#0d0b24) with a
+  neon border/text accent per category (books pink, signed electric
+  blue, graded gold); the row is flex-wrap so chips wrap cleanly at
+  phone widths.
+- **Verified**: headless Chrome at 360/390/412/430px with stubbed
+  Supabase data mirroring live shapes — **32/32 checks**: a member
+  with 66 books / 35 signed / 2 graded shows exactly First Book,
+  10/25/50 Books, First Signed, 10/25 Signed, First Graded on the
+  featured-strip card, the Collectors card, and the profile page
+  (badges directly after the stat chips); a 0-book member shows no
+  badges and no badge row; a 120-book member shows all 12 badges
+  including "100 Books", "50 Signed" and "10 Graded"; no horizontal
+  overflow at any width; zero JS errors.

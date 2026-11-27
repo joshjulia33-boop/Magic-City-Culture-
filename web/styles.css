@@ -315,6 +315,19 @@ nav.main-nav {
 .badge.sold { background: #55517e; color: #fff; }
 .badge.trade { background: #00e5a0; color: #000; }
 
+/* milestone badges: earned-only chips on collector cards & profiles.
+   Compact, dark fill with a neon border/text accent per category;
+   the row wraps so no phone width can overflow. */
+.milestone-badges { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; max-width: 100%; }
+.milestone-badge {
+  font-size: 10px; font-weight: 800; letter-spacing: 0.04em; line-height: 1.3;
+  padding: 0.18rem 0.45rem; border-radius: 9999px; white-space: nowrap;
+  background: #0d0b24; border: 1px solid var(--blue); color: var(--blue);
+}
+.milestone-badge.books { border-color: var(--accent); color: var(--accent-soft); }
+.milestone-badge.signed { border-color: var(--blue); color: var(--blue); }
+.milestone-badge.graded { border-color: #f5c542; color: #f5c542; }
+
 /* avatars */
 .avatar {
   flex: none; border-radius: 9999px; display: inline-flex; align-items: center; justify-content: center;

@@ -239,6 +239,41 @@ let busy = false;
 
 const profileById = (id) => profiles.find((p) => p.id === id) || null;
 
+/* ---------------- milestone badges ----------------
+   Earned-only badges computed from a member's PUBLIC counts — the
+   same gallery-derived counts the collector cards and profiles
+   already show (books, signed via is_signed, graded via isGraded()).
+   Pure front-end: no database change, no values or prices. A member
+   with no earned thresholds (e.g. zero books) renders nothing. */
+const MILESTONE_THRESHOLDS = [
+  { key: "books", thresholds: [[1, "First Book"], [10, "10 Books"], [25, "25 Books"], [50, "50 Books"], [100, "100 Books"]] },
+  { key: "signed", thresholds: [[1, "First Signed"], [10, "10 Signed"], [25, "25 Signed"], [50, "50 Signed"]] },
+  { key: "graded", thresholds: [[1, "First Graded"], [5, "5 Graded"], [10, "10 Graded"]] },
+];
+function publicCountsForBooks(books) {
+  return {
+    books: books.length,
+    signed: books.filter((c) => c.is_signed).length,
+    graded: books.filter((c) => isGraded(c.grade)).length,
+  };
+}
+function publicCountsForCollector(collectorId) {
+  return publicCountsForBooks(gallery.filter((c) => c.collector_id === collectorId));
+}
+function milestoneBadgeLabels(counts) {
+  const labels = [];
+  for (const { key, thresholds } of MILESTONE_THRESHOLDS) {
+    const n = counts?.[key] || 0;
+    for (const [min, label] of thresholds) if (n >= min) labels.push({ key, label });
+  }
+  return labels;
+}
+function milestoneBadgesHtml(counts) {
+  const earned = milestoneBadgeLabels(counts);
+  if (!earned.length) return "";
+  return `<span class="milestone-badges" aria-label="Milestone badges">${earned.map((b) => `<span class="milestone-badge ${b.key}">${esc(b.label)}</span>`).join("")}</span>`;
+}
+
 /* ---------------- referrals ----------------
    A member's personal link is <site>/?ref=<handle>. Arriving with a
    ?ref= stores the handle; when that handle names a real collector the
@@ -707,6 +742,7 @@ function featuredMemberCardHtml(p) {
         <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
         ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
         <span class="cmeta" style="display:block">${books.length} books • ${signed} signed${followsReady ? ` • ${followCountLabel(followerCountFor(p.id), "follower")}` : ""} • Joined ${esc(joinedLabel(p.created_at))}</span>
+        ${milestoneBadgesHtml(publicCountsForBooks(books))}
       </span>
     </button>
     ${friendButtonHtml(p)}
@@ -1649,8 +1685,8 @@ function wireMessages() {
 function viewCollectorsHtml() {
   const counts = new Map();
   for (const c of gallery) {
-    const cur = counts.get(c.collector_id) || { books: 0, signed: 0 };
-    cur.books += 1; if (c.is_signed) cur.signed += 1;
+    const cur = counts.get(c.collector_id) || { books: 0, signed: 0, graded: 0 };
+    cur.books += 1; if (c.is_signed) cur.signed += 1; if (isGraded(c.grade)) cur.graded += 1;
     counts.set(c.collector_id, cur);
   }
   return `<section class="block">
@@ -1658,7 +1694,7 @@ function viewCollectorsHtml() {
     <p class="view-sub">Every member of the community. Tap a collector to browse their shelf.</p>
     <div class="collector-list">
       ${profiles.map((p) => {
-        const ct = counts.get(p.id) || { books: 0, signed: 0 };
+        const ct = counts.get(p.id) || { books: 0, signed: 0, graded: 0 };
         const isMe = !!myProfile && p.id === myProfile.id;
         const friendBit = isMe && friendsReady ? ` • ${myFriendCount()} friend${myFriendCount() === 1 ? "" : "s"}` : "";
         const followBit = followsReady ? ` • ${followCountLabel(followerCountFor(p.id), "follower")}` : "";
@@ -1670,6 +1706,7 @@ function viewCollectorsHtml() {
               <span class="chandle" style="display:block">@${esc(p.handle)}${p.city ? ` • ${esc(p.city)}` : ""}</span>
               ${p.bio ? `<span class="cbio" style="display:block">${esc(p.bio)}</span>` : ""}
               <span class="cmeta" style="display:block">${ct.books} books • ${ct.signed} signed${friendBit}${followBit} • Joined ${esc(joinedLabel(p.created_at))}</span>
+              ${milestoneBadgesHtml(ct)}
             </span>
           </button>
           ${friendButtonHtml(p)}
@@ -1706,6 +1743,7 @@ function viewProfileHtml(collectorId) {
       ${myProfile && p.id === myProfile.id && friendsReady ? `<span>${myFriendCount()} friends</span>` : ""}
       ${exposedTotal !== null ? `<span>Shelf value ${esc(money(exposedTotal))} — shared by choice</span>` : `<span>Values private</span>`}
     </div>
+    ${milestoneBadgesHtml(publicCountsForBooks(books))}
     ${friendButtonHtml(p)}
     ${followButtonHtml(p)}
     ${messageButtonHtml(p)}
