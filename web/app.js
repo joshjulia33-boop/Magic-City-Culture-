@@ -2251,6 +2251,77 @@ function notificationsPanelHtml() {
     ${unreadCount ? `<button type="button" class="btn btn-blue" data-action="notifications-seen">MARK ALL SEEN</button>` : ""}
   </div>`;
 }
+/* ---------- want list (queue #2, feature 9) ----------
+   Books a member saves with status "wishlist" are books they want
+   but do NOT own — they live in the WANT LIST panel on My Shelf,
+   apart from the owned shelf. When another member shelves the same
+   book (same normalised title, and the same issue number when both
+   sides name one), the panel says so and the match also joins the
+   Notifications panel via notificationWantEvents() below — the
+   hook the Notifications build left open. Front-end matching over
+   data already loaded; no database step. */
+function wantTitleKey(title) {
+  return String(title || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function wantIssueKey(issue) {
+  const m = String(issue || "").match(/\d+/);
+  return m ? String(Number(m[0])) : "";
+}
+function wantBooksMatch(want, candidate) {
+  if (!wantTitleKey(want.title) || wantTitleKey(want.title) !== wantTitleKey(candidate.title)) return false;
+  const wi = wantIssueKey(want.issue);
+  const ci = wantIssueKey(candidate.issue);
+  return !wi || !ci || wi === ci;
+}
+function myWantList() {
+  return myComics.filter((c) => c.status === "wishlist");
+}
+function wantMatchesFor(want) {
+  if (!myProfile) return [];
+  return gallery.filter((c) =>
+    c.collector_id !== myProfile.id
+    && c.status !== "wishlist" && c.status !== "sold"
+    && wantBooksMatch(want, c));
+}
+function notificationWantEvents() {
+  if (!myProfile) return [];
+  const ev = [];
+  for (const want of myWantList()) {
+    for (const match of wantMatchesFor(want)) {
+      const who = profileById(match.collector_id);
+      ev.push({
+        at: match.created_at, who,
+        text: `${who ? who.display_name : "A member"} has ${`${match.title} ${match.issue}`.trim()} — it's on your want list`,
+      });
+    }
+  }
+  return ev.slice(0, 10);
+}
+function wantListPanelHtml() {
+  if (!myProfile) return "";
+  const wants = myWantList();
+  if (!wants.length) {
+    return `<div class="values-panel">
+      <p class="vp-tag">🎯 WANT LIST</p>
+      <p class="vp-note" style="margin-top:.4rem">Books you're hunting, kept apart from the shelf you own. Add one with Add a Book and set its status to <strong>Wishlist</strong> — when another member shelves a copy, you'll see it here and in your Notifications.</p>
+    </div>`;
+  }
+  const rows = wants.map((w) => {
+    const matches = wantMatchesFor(w);
+    const owners = [...new Set(matches.map((m) => profileById(m.collector_id)?.display_name).filter(Boolean))];
+    const matchLine = matches.length
+      ? `<span class="want-match hit">✓ A member has this — ${esc(owners.slice(0, 2).join(", "))}${owners.length > 2 ? ` and ${owners.length - 2} more` : ""}</span>`
+      : `<span class="want-match">Not on a member's shelf yet</span>`;
+    return `<div class="want-row">
+      <span class="want-thumb">${pickThumbHtml(w)}</span>
+      <span class="want-main"><span class="want-title">${esc(w.title)} ${esc(w.issue)}</span>${matchLine}</span>
+    </div>`;
+  }).join("");
+  return `<div class="values-panel">
+    <p class="vp-tag">🎯 WANT LIST — ${wants.length} BOOK${wants.length === 1 ? "" : "S"} YOU'RE HUNTING</p>
+    ${rows}
+  </div>`;
+}
 async function markNotificationsSeen() {
   if (!myProfile || !notificationsReady || busy) return;
   busy = true;
@@ -2340,6 +2411,7 @@ function viewShelfHtml() {
       </button>
     </div>
     ${notificationsPanelHtml()}
+    ${wantListPanelHtml()}
     ${MARKET_OPEN ? payoutsPanelHtml(p) : ""}
     ${friendsPanelHtml(p)}
     ${followingPanelHtml(p)}

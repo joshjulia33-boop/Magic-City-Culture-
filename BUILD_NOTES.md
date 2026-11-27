@@ -1408,3 +1408,30 @@ the removed-book fallback, join rows, avatar + time on every row,
 no "$" anywhere, the 12-row cap with 15+ events, hidden when
 empty, books + joins only with no comments table, overflow, zero
 JS errors).
+
+## Want list (queue #2, feature 9 — 2026-11-27)
+
+Front-end only, NO database step and no form change — the
+Add/Edit form already offers a Wishlist status. Books saved with
+status "wishlist" are books the member wants but does NOT own:
+they now get their own **🎯 WANT LIST** panel on My Shelf (under
+Notifications), apart from the owned shelf, listing each wanted
+book with its cover thumb. Matching runs client-side over the
+gallery data already loaded: another member's book matches when
+the normalised titles agree (case/punctuation-insensitive) and
+the issue numbers agree whenever both sides name one; the other
+member's own wishlist rows and sold rows never count, and neither
+does the member's own copy. A matched row reads "✓ A member has
+this — <owner names>"; an unmatched one reads "Not on a member's
+shelf yet". Matches also flow into the Notifications panel
+through `notificationWantEvents()` — the hook the Notifications
+build left for exactly this (capped at 10 events there). With no
+wishlist books the panel explains how to add one. Existing count
+surfaces (shelf totals, badges) treat status exactly as they did
+before this feature — unchanged; the new My Stats page (feature
+10) is where owned-only counting applies.
+Tests: Chrome 40/40 @360/390/412/430 (both wants listed; exact +
+normalised matches named with both owners; wrong-issue, own-copy,
+their-wishlist and sold copies all correctly NOT matches; exactly
+2 want events in Notifications counted as new; empty-state
+explainer with no rows and no events; overflow, zero JS errors).
