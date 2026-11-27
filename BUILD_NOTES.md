@@ -648,3 +648,28 @@ states: closed shows no price anywhere in the DOM on Market, Trade,
 Gallery, profile, shelf or detail views and no Sell or Trade section
 in the form; open restores today's behavior in full. No horizontal
 overflow and no JS errors in either state.
+
+## Update — Grade is a 1.0–10.0 selection in Add/Edit Book (2026-11-27)
+
+Owner's order: the Grade field in the Add a Book / Edit Book form is a
+dropdown running the full standard CGC numeric scale. `GRADES` in
+web/app.js is now `["", "1.0", "1.5", "1.8", "2.0", "2.5", "3.0", "3.5",
+"4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0", "7.5", "8.0", "8.5",
+"9.0", "9.2", "9.4", "9.6", "9.8", "9.9", "10.0"]` and the grade is
+stored as the plain number ("9.8"). The blank first option is labelled
+"Raw / no grade" and saves as an empty grade, exactly as before.
+It replaces the old mixed list ("Raw — Near Mint", "CGC 9.8", "CBCS
+9.6", …). Nothing already saved changes: the form still appends any
+saved grade that isn't on the scale (e.g. a legacy "CGC 9.6") as an
+extra selected option, and the photo-ID path still adds an off-scale
+grade as an option rather than dropping it — so editing an older book
+never loses or silently rewrites its grade; it only changes if the
+member picks a new one. One companion line: `isGraded()` now also
+recognises a plain numeric grade, so books graded with the new scale
+still count under the Graded filters (older "CGC x" values still
+match as before). Verified in headless Chrome at 390px with stubbed
+data (18/18): option list exact and in order, 9.8 saves as "9.8",
+a 9.4 book opens with 9.4 selected, a legacy "CGC 9.6" book opens
+with its grade preserved as an extra option, search prefill 9.6 and
+photo-ID grades land selected, no overflow, no JS errors, and the
+Market-closed form (no Sell or Trade section) is unchanged.

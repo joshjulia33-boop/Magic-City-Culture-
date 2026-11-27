@@ -31,7 +31,13 @@ function marketClosedHtml(title) {
 
 const COVER_COLORS = ["#FF2E88", "#00D4FF", "#B537F2", "#FF6EC7", "#0090FF", "#12102E", "#FF8A00", "#00E5A0", "#FF2E5F", "#00BFFF"];
 const PUBLISHERS = ["Marvel", "DC Comics", "Image Comics", "Dark Horse", "IDW", "Dynamite", "AWA", "BOOM! Studios", "Other"];
-const GRADES = ["", "Raw — Near Mint", "Raw — Very Fine", "Raw — Fine", "Raw", "CGC 10.0", "CGC 9.9", "CGC 9.8", "CGC 9.6", "CGC 9.4", "CGC 9.2", "CGC 9.0", "CBCS 9.8", "CBCS 9.6", "PGX 9.8"];
+// The grade choices in the Add/Edit Book form: the standard CGC
+// numeric scale, 1.0 to 10.0, stored as the plain number ("9.8"). The
+// blank first entry saves as no grade at all (a raw book). Older books
+// carry values like "CGC 9.8" or "Raw — Fine" — the form adds any saved
+// grade that isn't on this scale as an extra option so editing a book
+// never loses or silently changes its grade (see comicFormHtml).
+const GRADES = ["", "1.0", "1.5", "1.8", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0", "7.5", "8.0", "8.5", "9.0", "9.2", "9.4", "9.6", "9.8", "9.9", "10.0"];
 // The cover types / finishes collectors actually mark, gathered from
 // collector references (League of Comic Geeks' cover-enhancement list,
 // NuGrade's and Comic Vine's variant-cover guides, grading glossaries).
@@ -151,7 +157,10 @@ function orderDateLabel(iso) {
   const d = new Date(iso);
   return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
-function isGraded(grade) { return /CGC|CBCS|PGX/.test(grade || ""); }
+// A book counts as graded when its grade names a grader (older values
+// like "CGC 9.8") or is a plain number from the 1.0–10.0 scale the
+// Add/Edit form now saves ("9.8").
+function isGraded(grade) { return /CGC|CBCS|PGX/.test(grade || "") || /^\d+\.\d$/.test(grade || ""); }
 function initialsOf(title) {
   return (title || "").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
@@ -1601,7 +1610,7 @@ function comicFormHtml(c, prefill = null) {
     <div class="field"><label class="label" for="cf-variant">Variant / edition</label>
       <input class="input" id="cf-variant" maxlength="200" value="${esc(c?.variant || prefill?.variant || "")}" /></div>
     <div class="field"><label class="label" for="cf-grade">Grade</label>
-      <select class="input" id="cf-grade">${gradeOptions.map((g) => `<option value="${esc(g)}" ${g === gradeVal ? "selected" : ""}>${esc(g || "Ungraded / not recorded")}</option>`).join("")}</select></div>
+      <select class="input" id="cf-grade">${gradeOptions.map((g) => `<option value="${esc(g)}" ${g === gradeVal ? "selected" : ""}>${esc(g || "Raw / no grade")}</option>`).join("")}</select></div>
     <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label><label class="check"><input type="checkbox" id="cf-remark" ${c?.has_remark ? "checked" : ""} /> Has a remark</label></div>
     <div class="field" id="cf-signedby-wrap" ${c?.is_signed ? "" : 'style="display:none"'}><label class="label" for="cf-signedby">Signed by (artist name)</label>
       <input class="input" id="cf-signedby" maxlength="120" value="${esc(c?.signed_by || "")}" placeholder="Who signed it — e.g. Rob Liefeld" autocomplete="off" />
