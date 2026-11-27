@@ -496,8 +496,6 @@ function filteredGallery() {
 }
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
-  const signedCount = gallery.filter((c) => c.is_signed).length;
-  const forSaleCount = gallery.filter((c) => c.status === "for_sale").length;
   const filtered = filteredGallery();
   const chips = [
     ["all", `All books (${gallery.length})`],
@@ -538,13 +536,6 @@ function viewGalleryHtml() {
       <h1 class="neon-text">THE COLLECTOR'S HUB</h1>
       <p class="tagline">EVERY COLLECTOR. <span class="blue">ONE COMMUNITY.</span></p>
       <p class="lede">A shared gallery for comic collectors — browse every shelf in the community, then join and put your own books up next to them.</p>
-      <div class="stat-chips">
-        <span>${profiles.length} collectors</span>
-        <span>${gallery.length} books shelved</span>
-        <span>${signedCount} signed</span>
-        <span>${withCovers} with cover art</span>
-        ${MARKET_OPEN ? `<span>${forSaleCount} for sale</span>` : ""}
-      </div>
     </div>
   </section>
   ${heatCarouselHtml()}
