@@ -13,6 +13,7 @@ host — no build step, no server of its own.
 | `styles.css` | The neon-night theme (deep indigo, neon pink `#FF2E88`, electric blue `#00D4FF`, Archivo type) ported from the original app. |
 | `config.js` | Supabase project URL + **publishable** key. That key is public by design; all privacy is enforced by row-level security in the database. There is no secret key in this site, ever. |
 | `app.js` | All views and actions (see below). |
+| `signings.js` | The Signing Radar's curated event list (conventions, CGC mail-in signings, shop signings) — static data, edited by hand; see the honesty rule in the file header. |
 
 ## Features
 
@@ -56,6 +57,21 @@ host — no build step, no server of its own.
   is accepted, and the payment state (`offers.cash_status`) is written
   only by the payment functions. Needs deploy step 10 below; until
   then the tab says trading is being switched on.
+- **Signing Radar** — the sixth tab. A circular radar (mile rings, a
+  rotating sweep, a faint OpenStreetMap backdrop) centered on the
+  member's own location: browser geolocation when allowed, a typed
+  city/ZIP lookup (Nominatim) as fallback, Miami, FL by default.
+  Events come from the curated static list in `signings.js` —
+  conventions, comic-shop signings, and CGC Signature Series mail-in
+  signings (plotted at CGC's Sarasota HQ and labelled MAIL-IN; their
+  date is the submission deadline). Blips plot by true bearing +
+  haversine distance and sync with the distance-sorted list. The
+  artist search suggests from the same artist list as the Signed-by
+  box (plus names learned from books); picking or typing a name
+  filters radar + list. Artists who signed the signed-in member's own
+  books get a ★ everywhere, and when one is appearing within 50 miles
+  (in person) a banner at the top of the view calls it out and the
+  blip burns orange. No database step; no prices anywhere.
 - **Join / Sign in** — Supabase Auth (email + password). On first sign-in
   the member creates their collector profile (display name, handle, city,
   bio, avatar colour).

@@ -160,7 +160,12 @@ let tradeWant = new Set();       // builder: their comic ids I ask for (target i
 let tradeCash = "";              // builder: cash I add, as typed
 let tradeMessage = "";           // builder: note to the other member
 let counterOfId = null;          // builder: offer id this build counters, or null
-let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf
+let radarLoc = null;             // radar: { lat, lng, label } once set; Miami default until then
+let radarGeoTried = false;       // radar: automatic geolocation attempted once per session
+let radarArtist = "";            // radar: artist filter text (picked from suggestions or typed)
+let radarSelectedId = null;      // radar: event id selected from a blip or the list
+let radarMsg = "";               // radar: small status line under the location controls
+let view = { kind: "gallery" };  // gallery | market | trade | collectors | profile | shelf | radar
 let gallerySearch = "";
 let galleryFilter = "all";       // all | covers | signed | graded | for_sale
 let galleryGroup = false;
@@ -1227,6 +1232,7 @@ function render() {
     else if (view.kind === "collectors") app.innerHTML = viewCollectorsHtml();
     else if (view.kind === "profile") app.innerHTML = viewProfileHtml(view.collectorId);
     else if (view.kind === "shelf") app.innerHTML = viewShelfHtml();
+    else if (view.kind === "radar") app.innerHTML = viewRadarHtml();
   } catch (e) {
     app.innerHTML = `<p class="empty">Something went sideways rendering this view.</p>`;
     console.error(e);
@@ -1284,6 +1290,7 @@ function render() {
       window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     });
   }
+  wireRadar();
 }
 async function copyReferralLink() {
   const input = $("#ref-link");
@@ -2313,6 +2320,325 @@ async function deleteBook(comicId) {
   });
 }
 
+/* ---------------- signing radar ----------------
+   A radar of upcoming signings centered on the member's own location:
+   browser geolocation when they allow it, a typed city/ZIP lookup
+   (Nominatim) as fallback 1, and Miami, FL as the standing default.
+   Events come from the curated static list in signings.js — no
+   database step. Distances are true haversine miles; blips plot by
+   bearing + distance. Shelf matching uses the signed-in member's own
+   signed_by names (never anyone's values — this feature shows no
+   prices anywhere). Mail-in signings (CGC) plot CGC's Sarasota HQ
+   and are labelled as mail-ins: their miles are "to CGC HQ". */
+const RADAR_DEFAULT_LOC = { lat: 25.7617, lng: -80.1918, label: "Miami, FL" };
+const RADAR_ALERT_MILES = 50;
+
+function signingEvents() {
+  const d = window.MCC_SIGNINGS;
+  return d && Array.isArray(d.events) ? d.events : [];
+}
+function signingsUpdatedLabel() {
+  const d = window.MCC_SIGNINGS;
+  return d && d.dataUpdated ? prettyDate(d.dataUpdated) : "";
+}
+function radarCenter() { return radarLoc || RADAR_DEFAULT_LOC; }
+function haversineMi(aLat, aLng, bLat, bLng) {
+  const R = 3958.8;
+  const dLat = (bLat - aLat) * Math.PI / 180;
+  const dLng = (bLng - aLng) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2
+    + Math.cos(aLat * Math.PI / 180) * Math.cos(bLat * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+function radarXY(from, ev) {
+  return {
+    east: (ev.lng - from.lng) * 69.05 * Math.cos(from.lat * Math.PI / 180),
+    north: (ev.lat - from.lat) * 69.0,
+    dist: haversineMi(from.lat, from.lng, ev.lat, ev.lng),
+  };
+}
+function fmtMi(d) {
+  if (d < 1) return "<1";
+  if (d < 20) return String(Math.round(d * 10) / 10).replace(/\.0$/, "");
+  return String(Math.round(d));
+}
+function niceRadarRange(maxMi) {
+  const steps = [10, 25, 50, 75, 100, 150, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000];
+  for (const s of steps) if (maxMi <= s) return s;
+  return 4000;
+}
+// The signed-in member's own shelf signers: lowercase name -> count of
+// their books that name signed. Empty for signed-out visitors.
+function myShelfSigners() {
+  const m = new Map();
+  if (!myProfile) return m;
+  for (const c of myComics) {
+    const n = String(c.signed_by || "").trim();
+    if (!n) continue;
+    const k = n.toLowerCase();
+    const cur = m.get(k) || { name: n, count: 0 };
+    cur.count += 1;
+    m.set(k, cur);
+  }
+  return m;
+}
+function radarEventRows() {
+  const c = radarCenter();
+  const signers = myShelfSigners();
+  const q = radarArtist.trim().toLowerCase();
+  let rows = signingEvents().map((ev) => {
+    const { east, north, dist } = radarXY(c, ev);
+    const shelfHits = (ev.artists || []).filter((a) => signers.has(a.toLowerCase()));
+    return {
+      ev, east, north, dist, shelfHits,
+      alert: !!myProfile && ev.type !== "mail-in signing" && dist <= RADAR_ALERT_MILES && shelfHits.length > 0,
+    };
+  });
+  if (q) rows = rows.filter((r) => (r.ev.artists || []).some((a) => a.toLowerCase().includes(q)));
+  rows.sort((a, b) => a.dist - b.dist);
+  return rows;
+}
+function radarAlerts() {
+  // Alerts ignore the artist filter: they are the member's heads-up.
+  const signers = myShelfSigners();
+  if (!myProfile || !signers.size) return [];
+  const c = radarCenter();
+  const out = [];
+  for (const ev of signingEvents()) {
+    if (ev.type === "mail-in signing") continue;
+    const { dist } = radarXY(c, ev);
+    if (dist > RADAR_ALERT_MILES) continue;
+    for (const a of ev.artists || []) {
+      const hit = signers.get(a.toLowerCase());
+      if (hit) out.push({ artist: hit.name, count: hit.count, ev, dist });
+    }
+  }
+  return out.sort((a, b) => a.dist - b.dist);
+}
+function radarDateLabel(ev) {
+  if (ev.type === "mail-in signing") return `Submissions due ${prettyDate(ev.startDate)}`;
+  if (ev.startDate === ev.endDate) return prettyDate(ev.startDate);
+  return `${prettyDate(ev.startDate)} – ${prettyDate(ev.endDate)}`;
+}
+function radarTypeLabel(ev) {
+  if (ev.type === "mail-in signing") return "MAIL-IN SIGNING";
+  if (ev.type === "shop signing") return "SHOP SIGNING";
+  return "CONVENTION";
+}
+// Faint map backdrop: real OpenStreetMap tiles centered on the member,
+// with a street-grid layer underneath so the scope still reads as a
+// map if a tile fails to load. Zoom is picked so the tile scale
+// roughly matches the radar's mile range.
+function radarMapHtml(center, rangeMi) {
+  const metersAcross = rangeMi * 2 * 1609.34;
+  const mpp = metersAcross / 400;
+  const z = Math.max(3, Math.min(14, Math.round(Math.log2(156543.03392 * Math.cos(center.lat * Math.PI / 180) / mpp))));
+  const world = 256 * 2 ** z;
+  const cx = (center.lng + 180) / 360 * world;
+  const latRad = center.lat * Math.PI / 180;
+  const cy = (0.5 - Math.log((1 + Math.sin(latRad)) / (1 - Math.sin(latRad))) / (4 * Math.PI)) * world;
+  const span = 340; // px each way from center — covers the largest scope
+  let tiles = "";
+  const tx0 = Math.floor((cx - span) / 256), tx1 = Math.floor((cx + span) / 256);
+  const ty0 = Math.floor((cy - span) / 256), ty1 = Math.floor((cy + span) / 256);
+  for (let tx = tx0; tx <= tx1; tx++) {
+    for (let ty = ty0; ty <= ty1; ty++) {
+      if (tx < 0 || ty < 0 || tx >= 2 ** z || ty >= 2 ** z) continue;
+      tiles += `<img src="https://tile.openstreetmap.org/${z}/${tx}/${ty}.png" alt="" loading="lazy" onerror="this.remove()" style="left:${tx * 256 - cx}px;top:${ty * 256 - cy}px" />`;
+    }
+  }
+  return `<div class="radar-grid-bg" aria-hidden="true"></div>
+    <div class="radar-tiles" aria-hidden="true">${tiles}</div>
+    <div class="radar-map-shade" aria-hidden="true"></div>`;
+}
+function radarScopeHtml(rows, rangeMi) {
+  const center = radarCenter();
+  const rings = [0.25, 0.5, 0.75, 1].map((f) => `
+    <div class="radar-ring" style="width:${f * 100}%;height:${f * 100}%"></div>
+    <span class="radar-ring-label" style="top:calc(${50 - f * 50}% + 2px)">${fmtMi(rangeMi * f)} mi</span>`).join("");
+  const blips = rows.map((r) => {
+    const ratio = Math.min(r.dist / rangeMi, 0.96);
+    const ang = Math.atan2(r.east, r.north);
+    const x = 50 + Math.sin(ang) * ratio * 50;
+    const y = 50 - Math.cos(ang) * ratio * 50;
+    const cls = ["radar-blip", r.ev.type === "mail-in signing" ? "mailin" : "", r.alert ? "hot" : "", radarSelectedId === r.ev.id ? "sel" : ""].filter(Boolean).join(" ");
+    return `<button type="button" class="${cls}" style="left:${x}%;top:${y}%" data-action="radar-select" data-id="${esc(r.ev.id)}" aria-label="${esc(r.ev.name)} — ${esc(fmtMi(r.dist))} miles away" title="${esc(r.ev.name)}"></button>`;
+  }).join("");
+  return `<div class="radar-scope" role="group" aria-label="Radar of signings near ${esc(center.label)}">
+    ${radarMapHtml(center, rangeMi)}
+    ${rings}
+    <div class="radar-sweep" aria-hidden="true"></div>
+    ${blips}
+    <div class="radar-center" aria-hidden="true"></div>
+  </div>`;
+}
+function radarCardHtml(r, signers) {
+  const ev = r.ev;
+  const mailin = ev.type === "mail-in signing";
+  const artists = (ev.artists || []).length
+    ? `<p class="radar-artists">Signing: ${(ev.artists || []).map((a) => signers.has(a.toLowerCase())
+      ? `<span class="radar-artist-hit">★ ${esc(a)} — signed your books</span>`
+      : esc(a)).join(", ")}</p>`
+    : "";
+  const miles = mailin
+    ? `MAIL-IN — mail your books in (CGC HQ is ~${fmtMi(r.dist)} mi away)`
+    : `~${fmtMi(r.dist)} mi away`;
+  return `<article class="radar-card${r.alert ? " hot" : ""}${radarSelectedId === ev.id ? " sel" : ""}" data-radar-card="${esc(ev.id)}">
+    <div class="radar-card-top">
+      <button type="button" class="radar-card-name" data-action="radar-select" data-id="${esc(ev.id)}">${esc(ev.name)}</button>
+      <span class="radar-type${mailin ? " mailin" : ""}">${esc(radarTypeLabel(ev))}</span>
+    </div>
+    <p class="radar-meta">${esc(ev.venue)} — ${esc(ev.city)}, ${esc(ev.state)}</p>
+    <p class="radar-meta">${esc(radarDateLabel(ev))} · ${esc(miles)}</p>
+    ${artists}
+    ${ev.artistsNote ? `<p class="radar-note">${esc(ev.artistsNote)}</p>` : ""}
+    <p class="radar-links"><a href="${esc(ev.url)}" target="_blank" rel="noopener">OFFICIAL PAGE ↗</a>${ev.source ? `<span class="radar-source">Source: ${esc(ev.source)}</span>` : ""}</p>
+  </article>`;
+}
+function radarResultsHtml() {
+  const rows = radarEventRows();
+  const signers = myShelfSigners();
+  const all = signingEvents();
+  const rangeMi = niceRadarRange(rows.length ? rows[rows.length - 1].dist : (all.length ? Math.max(...all.map((ev) => radarXY(radarCenter(), ev).dist)) : 25));
+  let h = "";
+  if (radarArtist.trim()) {
+    h += `<div class="radar-filter-bar"><span>Showing signings with <strong>${esc(radarArtist.trim())}</strong> — ${rows.length} found</span><button type="button" class="btn btn-ghost btn-sm" data-action="radar-clear-artist">SHOW ALL</button></div>`;
+  }
+  if (!all.length) {
+    h += `<p class="empty" style="padding:1.5rem 0">The signing list is being updated — check back soon.</p>`;
+  } else if (!rows.length) {
+    h += `<p class="empty" style="padding:1.5rem 0">No signings found for “${esc(radarArtist.trim())}” yet. Clear the search to see everything on the radar.</p>`;
+  } else {
+    h += radarScopeHtml(rows, rangeMi);
+    h += `<div class="radar-list">${rows.map((r) => radarCardHtml(r, signers)).join("")}</div>`;
+  }
+  const upd = signingsUpdatedLabel();
+  if (upd) h += `<p class="radar-foot">Signing list updated ${esc(upd)} — official pages have the latest guest lists.</p>`;
+  return h;
+}
+function refreshRadarResults() {
+  const el = $("#radar-results");
+  if (el) el.innerHTML = radarResultsHtml();
+}
+function viewRadarHtml() {
+  const center = radarCenter();
+  const alerts = radarAlerts();
+  let h = `<section class="block">
+    <h2 class="view-title">SIGNING RADAR</h2>
+    <p class="view-sub">Conventions, shop signings and CGC mail-in signings — plotted from where you are, with the miles to each one. Artists who signed books on your shelf get a ★, and near ones light the radar up.</p>`;
+  if (alerts.length) {
+    h += `<div class="radar-alerts" role="alert">${alerts.map((a) => `<p>⚠ <strong>${esc(a.artist)}</strong> — who signed ${a.count} of your books — is signing ~${esc(fmtMi(a.dist))} miles away at <strong>${esc(a.ev.name)}</strong> on ${esc(prettyDate(a.ev.startDate))}.</p>`).join("")}</div>`;
+  }
+  h += `<div class="radar-controls">
+      <div class="radar-search">
+        <label class="label" for="radar-artist">Find a signature artist</label>
+        <div class="signer-field">
+          <input id="radar-artist" type="text" placeholder="Start typing — Dan Mora, Frank Miller…" value="${esc(radarArtist)}" autocomplete="off" />
+          <div class="signer-suggest" id="radar-suggest" hidden></div>
+        </div>
+      </div>
+      <div class="radar-loc">
+        <p class="radar-near">📍 Signings near <strong>${esc(center.label)}</strong>${radarLoc ? "" : " (default)"}</p>
+        <div class="row-actions">
+          <button type="button" class="btn btn-blue btn-sm" data-action="radar-geolocate">USE MY LOCATION</button>
+        </div>
+        <form id="radar-place-form" class="radar-place">
+          <input id="radar-place" type="text" placeholder="…or type a city or ZIP" autocomplete="off" />
+          <button type="submit" class="btn btn-ghost btn-sm">SET LOCATION</button>
+        </form>
+        ${radarMsg ? `<p class="form-note">${esc(radarMsg)}</p>` : ""}
+      </div>
+    </div>
+    <div id="radar-results">${radarResultsHtml()}</div>
+  </section>`;
+  return h;
+}
+function renderRadarSuggest() {
+  const box = $("#radar-suggest");
+  const input = $("#radar-artist");
+  if (!box || !input) return;
+  const signers = myShelfSigners();
+  const matches = signerMatches(input.value);
+  if (!matches.length) { box.hidden = true; box.innerHTML = ""; return; }
+  box.innerHTML = matches.map((n) => `<button type="button" data-action="radar-artist-pick" data-name="${esc(n)}">${esc(n)}${signers.has(n.toLowerCase()) ? ` <span class="radar-signed-tag">★ SIGNED YOUR BOOKS</span>` : ""}</button>`).join("");
+  box.hidden = false;
+}
+function pickRadarArtist(name) {
+  radarArtist = name;
+  radarSelectedId = null;
+  const input = $("#radar-artist");
+  if (input) input.value = name;
+  const box = $("#radar-suggest");
+  if (box) { box.hidden = true; box.innerHTML = ""; }
+  refreshRadarResults();
+}
+function selectRadarEvent(id) {
+  radarSelectedId = radarSelectedId === id ? null : id;
+  refreshRadarResults();
+  if (radarSelectedId) {
+    document.querySelector(`[data-radar-card="${CSS.escape(radarSelectedId)}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+function tryRadarGeolocate(manual) {
+  if (!("geolocation" in navigator)) {
+    if (manual) { radarMsg = "This browser can't share a location — type a city or ZIP instead."; render(); }
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      radarLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "your location" };
+      radarMsg = "";
+      if (view.kind === "radar") render();
+    },
+    () => {
+      if (manual) { radarMsg = "Couldn't get your location — showing the map from Miami. Type a city or ZIP to move it."; if (view.kind === "radar") render(); }
+    },
+    { timeout: 8000, maximumAge: 600000 },
+  );
+}
+async function radarGeocode(query) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`);
+    if (!res.ok) throw new Error("lookup failed");
+    const hits = await res.json();
+    if (!hits.length) { radarMsg = `Couldn't find “${query}” — try a city name or a ZIP code.`; render(); return; }
+    const hit = hits[0];
+    const label = String(hit.display_name || query).split(",").slice(0, 2).join(",").trim() || query;
+    radarLoc = { lat: parseFloat(hit.lat), lng: parseFloat(hit.lon), label };
+    radarMsg = "";
+    render();
+  } catch {
+    radarMsg = "The place lookup didn't answer — check your connection and try again.";
+    if (view.kind === "radar") render();
+  }
+}
+function wireRadar() {
+  const input = $("#radar-artist");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    radarArtist = input.value;
+    radarSelectedId = null;
+    renderRadarSuggest();
+    refreshRadarResults();
+  });
+  input.addEventListener("focus", renderRadarSuggest);
+  input.addEventListener("blur", () => setTimeout(() => { const b = $("#radar-suggest"); if (b) b.hidden = true; }, 150));
+  const form = $("#radar-place-form");
+  if (form) {
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const q = $("#radar-place")?.value.trim();
+      if (q) radarGeocode(q);
+    });
+  }
+  // First visit: try the member's real location once. Denial or a
+  // missing API quietly leaves the Miami default in place.
+  if (!radarLoc && !radarGeoTried) {
+    radarGeoTried = true;
+    tryRadarGeolocate(false);
+  }
+}
+
 /* ---------------- events & init ---------------- */
 document.addEventListener("click", (e) => {
   const backdrop = e.target.closest?.("[data-action-backdrop]");
@@ -2365,6 +2691,10 @@ document.addEventListener("click", (e) => {
     case "friend-add": sendFriendRequest(id); break;
     case "friend-accept": acceptFriendship(id); break;
     case "friend-remove": removeFriendship(id); break;
+    case "radar-select": selectRadarEvent(id); break;
+    case "radar-artist-pick": pickRadarArtist(el.dataset.name || ""); break;
+    case "radar-clear-artist": radarArtist = ""; radarSelectedId = null; { const inp = $("#radar-artist"); if (inp) inp.value = ""; } refreshRadarResults(); break;
+    case "radar-geolocate": radarMsg = ""; tryRadarGeolocate(false); break;
     case "toggle-values": toggleValues(); break;
     case "copy-ref-link": copyReferralLink(); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;

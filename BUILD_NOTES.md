@@ -336,3 +336,77 @@ functions (`stripe-webhook` with Verify JWT **off**); set the secrets
 `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`;
 create the Stripe webhook endpoint for the three events. Until then
 the live site behaves exactly as before.
+
+## Update — Signing Radar (2026-11-26)
+
+**Owner's design**: a radar-looking graph with a GPS backdrop for
+every member, centered on that member's own location; a search bar
+for signature artists (auto-suggesting from the site's artist list);
+dots for signings with their miles-away; and alerts when an artist
+who signed the member's own books is appearing near them. Scope was
+then widened beyond conventions: CGC Signature Series signings,
+CBCS signings, comic-shop signings, and artist-announced appearances.
+
+**Data** — new static file `web/signings.js`, NO database step:
+`window.MCC_SIGNINGS = { dataUpdated, events: [...] }`, each event
+`{ id, name, type, venue, city, state, lat, lng, startDate, endDate,
+url, artists, artistsNote, source }` with `type` one of
+`convention | mail-in signing | shop signing`. **Honesty rule** (in
+the file header): an artist is listed only when a published guest
+list/announcement actually found names them; unannounced shows carry
+`artists: []` + "Guest list to be announced". 16 events seeded
+(2026-11-26 research): 9 conventions (Florida Supercon — Dan Mora +
+Ariel Diaz from the official guest list; MegaCon Orlando — Frank
+Miller from his official guest page; Tampa Bay Comic Con, ECCC,
+WonderCon, C2E2, SDCC, Dragon Con, NYCC — guests TBA), 4 CGC
+Signature Series mail-in private signings from cgccomics.com
+(Absolute Wonder Woman team — due Jan 15 2027; Bob Budiansky and
+Keith Williams — due Feb 26 2027; Lucio Parrillo & Carla Cohen —
+due Apr 16 2027), and 3 shop signings (Greg Land in Memphis,
+Sanford Greene in Cary NC, Fleecs & Forstner at Third Eye MD).
+CBCS was researched: it publishes no public signing calendar, so no
+CBCS events are seeded. Mail-ins plot CGC's Lakewood Ranch /
+Sarasota HQ coordinates and their dates are the submission
+deadlines; the UI labels them "MAIL-IN — distance is to CGC HQ".
+
+**Front end** — sixth nav tab RADAR (nav grid reworked: rows of two
+on phones, three from 560px, six from 1024px; labels still measured
+into their boxes). The scope is a circle of mile rings (range =
+nice-rounded farthest shown event, quarter rings labelled), a
+rotating conic sweep, and a faint OpenStreetMap tile backdrop
+centered on the member (zoom matched to the range; a street-grid
+layer sits underneath so failed tiles still read as a map). Blips
+plot by true bearing + haversine distance, pulse, and sync with the
+distance-sorted list both ways (selected state shared). Location:
+geolocation once per session when allowed → typed city/ZIP via
+Nominatim → Miami, FL default; kept in page state like other view
+state. Artist search reuses the Signed-by suggestion machinery
+(`signerMatches` over artists.js + learned `signed_by` names),
+filters radar + list live, and marks the member's own shelf signers
+with ★ "SIGNED YOUR BOOKS". **Alerts**: for a signed-in member, an
+in-person signing within 50 miles featuring one of their shelf
+signers puts a banner at the top of the view ("⚠ [Artist] — who
+signed N of your books — is signing ~X miles away at [Event] on
+[date]") and turns that blip orange. Mail-ins never alert (their
+distance is to CGC HQ, not a trip). Signed-out visitors get the
+full radar + list with no personal alerts. No prices or values
+anywhere in the feature; Add/Edit forms untouched; nothing
+Stripe-related touched.
+
+**Verification** — headless Chrome at 390px against a stubbed
+Supabase client (this Chromium build blocks loopback navigations,
+so the harness serves the origin from disk via Fetch interception;
+the WebGL domain-policy file/switch pair is required to launch it).
+Signed-in test member (shelf signed by Dan Mora ×2, Frank Miller
+×1): **all checks pass** — 6 tabs fit their boxes; sweep + 4
+labelled rings; 16 blips (1 hot, 4 mail-in); alert banner fires for
+Dan Mora (Supercon, ~4.3 mi) and not for Frank Miller (MegaCon,
+~205 mi); distances sane (Miami Beach < 15 mi, Orlando ≈ 205 mi,
+CGC HQ ≈ 179 mi labelled mail-in); list sorted by distance;
+suggestions come from artists.js with the ★ marker; picking Dan
+Mora filters to 1 blip/1 card, SHOW ALL restores 16; blip↔card
+selection syncs; geolocation override centers on "your location";
+geocoding "Orlando" re-centers (MegaCon ~<1 mi, Supercon ~204 mi);
+no horizontal overflow; no JS exceptions. Signed-out run: radar +
+16 events render from the Miami default, no alerts, no shelf
+markers, no exceptions.
