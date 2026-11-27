@@ -673,3 +673,42 @@ a 9.4 book opens with 9.4 selected, a legacy "CGC 9.6" book opens
 with its grade preserved as an extra option, search prefill 9.6 and
 photo-ID grades land selected, no overflow, no JS errors, and the
 Market-closed form (no Sell or Trade section) is unchanged.
+
+## Update — Graded tick + grade number input in Add/Edit Book (2026-11-27)
+
+Owner's follow-up order, superseding the dropdown above: grade entry
+is now two-part. A **Graded** checkbox (same `.check` styling as
+Signed / Has a remark, sitting right where the Grade field was) plus
+a **grade number input** (`type="number"`, min 1, max 10, step 0.1,
+placeholder "9.8") with a datalist (`GRADE_STEPS` in web/app.js) of
+the standard CGC steps 1.0, 1.5, 1.8, …, 9.9, 10.0 — type the number
+or pick a suggested one. There is no database change: graded is
+derived from the grade itself, ticked ⇔ a grade is set.
+
+Behaviour: the number box is hidden and disabled until Graded is
+ticked (ticking it also focuses the box); unticked saves an empty
+grade (raw), exactly as before. Ticked demands a number from 1.0 to
+10.0 — an empty or out-of-range value stops the save with the notice
+"Enter a grade from 1.0 to 10.0, or untick Graded" and nothing is
+written. The stored value is the plain number normalised to one
+decimal ("9.8", "10.0"). The form carries `novalidate` so this check
+— not the browser's native bubble — is what guards the range (the
+title and asking-price checks already worked the same thrown-error
+way). A helper `gradeNumberOf()` pulls the number out of any stored
+grade: an edit of a plain "9.4" book or a legacy "CGC 9.6" / "CBCS
+9.8" book opens with Graded ticked and just the number showing, and
+saving stores the plain number; a value with no number ("Raw —
+Fine") opens unticked. Every prefill path goes through the same
+helper — search picks via the form's prefill, and photo ID / slab
+identification (`applyAiIdentification`) ticks Graded, shows the
+box, and puts the stripped number in — so no identified grade is
+ever dropped. `isGraded()` and the Graded filters are unchanged and
+keep working off the stored grade. Market stays closed (no Sell or
+Trade section rendered); values/privacy and Stripe untouched.
+Verified in headless Chrome at 390px with stubbed data (41/41):
+unticked saves an empty grade, ticking shows/enables/focuses the
+box, 9.8 and 10.0 save as "9.8"/"10.0", empty / 11 / 0.5 are blocked
+with the notice and no write, edit states for plain, legacy and raw
+books all correct, unticking a graded book saves it raw, search
+prefill and photo-ID "CGC 9.8" both land ticked with the bare
+number, datalist exact, no overflow, no JS errors.

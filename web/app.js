@@ -31,13 +31,14 @@ function marketClosedHtml(title) {
 
 const COVER_COLORS = ["#FF2E88", "#00D4FF", "#B537F2", "#FF6EC7", "#0090FF", "#12102E", "#FF8A00", "#00E5A0", "#FF2E5F", "#00BFFF"];
 const PUBLISHERS = ["Marvel", "DC Comics", "Image Comics", "Dark Horse", "IDW", "Dynamite", "AWA", "BOOM! Studios", "Other"];
-// The grade choices in the Add/Edit Book form: the standard CGC
-// numeric scale, 1.0 to 10.0, stored as the plain number ("9.8"). The
-// blank first entry saves as no grade at all (a raw book). Older books
-// carry values like "CGC 9.8" or "Raw — Fine" — the form adds any saved
-// grade that isn't on this scale as an extra option so editing a book
-// never loses or silently changes its grade (see comicFormHtml).
-const GRADES = ["", "1.0", "1.5", "1.8", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0", "7.5", "8.0", "8.5", "9.0", "9.2", "9.4", "9.6", "9.8", "9.9", "10.0"];
+// The standard CGC grade steps, 1.0 to 10.0. In the Add/Edit Book
+// form they are the suggestions on the grade number box (a datalist):
+// the member ticks "Graded" and types the number, or picks one of
+// these. The grade is stored as the plain number ("9.8"); no tick
+// saves no grade at all (a raw book). Older books carry values like
+// "CGC 9.8" or "Raw — Fine" — gradeNumberOf pulls the number out of
+// them, so editing a book shows just its number and never drops it.
+const GRADE_STEPS = ["1.0", "1.5", "1.8", "2.0", "2.5", "3.0", "3.5", "4.0", "4.5", "5.0", "5.5", "6.0", "6.5", "7.0", "7.5", "8.0", "8.5", "9.0", "9.2", "9.4", "9.6", "9.8", "9.9", "10.0"];
 // The cover types / finishes collectors actually mark, gathered from
 // collector references (League of Comic Geeks' cover-enhancement list,
 // NuGrade's and Comic Vine's variant-cover guides, grading glossaries).
@@ -161,6 +162,16 @@ function orderDateLabel(iso) {
 // like "CGC 9.8") or is a plain number from the 1.0–10.0 scale the
 // Add/Edit form now saves ("9.8").
 function isGraded(grade) { return /CGC|CBCS|PGX/.test(grade || "") || /^\d+\.\d$/.test(grade || ""); }
+// The number inside a stored grade, normalised to one decimal place:
+// "9.8" stays "9.8" and a legacy "CGC 9.6" / "CBCS 9.8" gives "9.6" /
+// "9.8". A value with no number in range ("", "Raw — Fine") is a raw
+// book and gives "" — the form's Graded box stays unticked for it.
+function gradeNumberOf(grade) {
+  const m = String(grade || "").match(/\d+(?:\.\d+)?/);
+  if (!m) return "";
+  const n = Number(m[0]);
+  return n >= 1 && n <= 10 ? n.toFixed(1) : "";
+}
 function initialsOf(title) {
   return (title || "").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
 }
@@ -1566,10 +1577,13 @@ async function onProfileSubmit(e) {
 function comicFormHtml(c, prefill = null) {
   const v = c ? myValues.get(c.id) : null;
   const status = c?.status || "owned";
-  // A found book's grade must land in the Grade box even when it isn't one
-  // of the stock options (same trick the cover scan uses).
-  const gradeVal = c?.grade || prefill?.grade || "";
-  const gradeOptions = gradeVal && !GRADES.includes(gradeVal) ? [...GRADES, gradeVal] : GRADES;
+  // Graded is derived from the grade itself — there is no separate
+  // flag to store. Any grade carrying a number (a plain "9.6" from
+  // this form, or a legacy "CGC 9.6" / "CBCS 9.8") opens with the
+  // Graded box ticked and just the number in the grade box; no number
+  // means a raw book. A found book's grade lands the same way via
+  // prefill, so an identified grade is never dropped.
+  const gradeNum = gradeNumberOf(c?.grade || prefill?.grade || "");
   // Cover-type chips: the stock list plus any type already saved on the
   // book that isn't in the list, so nothing a member picked ever vanishes.
   const coverTypeSel = c ? coverTypesOf(c) : coverTypesOf(prefill);
@@ -1609,8 +1623,10 @@ function comicFormHtml(c, prefill = null) {
       <select class="input" id="cf-publisher">${PUBLISHERS.map((pub) => `<option ${pub === (c?.publisher || prefill?.publisher || "Marvel") ? "selected" : ""}>${esc(pub)}</option>`).join("")}</select></div>
     <div class="field"><label class="label" for="cf-variant">Variant / edition</label>
       <input class="input" id="cf-variant" maxlength="200" value="${esc(c?.variant || prefill?.variant || "")}" /></div>
-    <div class="field"><label class="label" for="cf-grade">Grade</label>
-      <select class="input" id="cf-grade">${gradeOptions.map((g) => `<option value="${esc(g)}" ${g === gradeVal ? "selected" : ""}>${esc(g || "Raw / no grade")}</option>`).join("")}</select></div>
+    <div class="field"><label class="check"><input type="checkbox" id="cf-graded" ${gradeNum ? "checked" : ""} /> Graded</label>
+      <div id="cf-grade-wrap" ${gradeNum ? "" : 'style="display:none"'} style="margin-top:.45rem"><label class="label" for="cf-grade">Grade (1.0 to 10.0)</label>
+        <input class="input" id="cf-grade" type="number" min="1" max="10" step="0.1" inputmode="decimal" placeholder="9.8" list="cf-grade-steps" value="${esc(gradeNum)}" ${gradeNum ? "" : "disabled"} /></div>
+      <datalist id="cf-grade-steps">${GRADE_STEPS.map((g) => `<option value="${esc(g)}"></option>`).join("")}</datalist></div>
     <div class="field" style="display:flex;gap:1.25rem;flex-wrap:wrap"><label class="check"><input type="checkbox" id="cf-signed" ${c?.is_signed ? "checked" : ""} /> Signed</label><label class="check"><input type="checkbox" id="cf-remark" ${c?.has_remark ? "checked" : ""} /> Has a remark</label></div>
     <div class="field" id="cf-signedby-wrap" ${c?.is_signed ? "" : 'style="display:none"'}><label class="label" for="cf-signedby">Signed by (artist name)</label>
       <input class="input" id="cf-signedby" maxlength="120" value="${esc(c?.signed_by || "")}" placeholder="Who signed it — e.g. Rob Liefeld" autocomplete="off" />
@@ -1652,7 +1668,7 @@ function openComicForm(comicId = null, prefill = null) {
   if (comicId && !c) return;
   openModal(`
     ${modalHead(c ? "EDIT BOOK" : "ADD A BOOK")}
-    <form id="comic-form" data-comic-id="${c?.id || ""}">
+    <form id="comic-form" data-comic-id="${c?.id || ""}" novalidate>
       ${comicFormHtml(c, prefill)}
       <p class="form-error" id="cf-error"></p>
       <div class="row-actions">
@@ -1695,6 +1711,15 @@ function openComicForm(comicId = null, prefill = null) {
   $("#cf-signed").addEventListener("change", (e) => {
     $("#cf-signedby-wrap").style.display = e.target.checked ? "" : "none";
     if (!e.target.checked) $("#cf-signedby-suggest").hidden = true;
+  });
+  // The grade box only lives while Graded is ticked: unticked hides
+  // and disables it (the book saves raw, no grade); ticking it brings
+  // the box up ready for the number.
+  $("#cf-graded").addEventListener("change", (e) => {
+    const on = e.target.checked;
+    $("#cf-grade-wrap").style.display = on ? "" : "none";
+    $("#cf-grade").disabled = !on;
+    if (on) $("#cf-grade").focus();
   });
   const signedByInput = $("#cf-signedby");
   const signedBySuggest = $("#cf-signedby-suggest");
@@ -1790,12 +1815,23 @@ async function onComicSubmit(e) {
       ? (prior?.asking_price_cents ?? null)
       : status === "for_sale" ? dollarsToCents($("#cf-asking").value) : null;
     if (MARKET_OPEN && status === "for_sale" && (!asking || asking <= 0)) throw new Error("Name an asking price to list this book for sale.");
+    // Graded ticked ⇔ a grade is saved. Unticked saves an empty grade
+    // (a raw book, as always); ticked demands a number from 1.0 to
+    // 10.0 and stores it as the plain number ("9.8") — anything else
+    // stops the save with a notice instead of storing a bad value.
+    let grade = "";
+    if ($("#cf-graded").checked) {
+      const raw = $("#cf-grade").value.trim();
+      const n = Number(raw);
+      if (!raw || !Number.isFinite(n) || n < 1 || n > 10) throw new Error("Enter a grade from 1.0 to 10.0, or untick Graded");
+      grade = n.toFixed(1);
+    }
     const fields = {
       title: $("#cf-title").value.trim(),
       issue: $("#cf-issue").value.trim(),
       publisher: $("#cf-publisher").value,
       variant: $("#cf-variant").value.trim(),
-      grade: $("#cf-grade").value,
+      grade,
       is_signed: $("#cf-signed").checked,
       signed_by: $("#cf-signed").checked ? $("#cf-signedby").value.trim() : "",
       has_coa: $("#cf-coa").checked,
@@ -2048,10 +2084,16 @@ function fillIdentityFields(cand, force) {
 function applyAiIdentification(ai) {
   fillIdentityFields(ai, false);
   if (ai.grade) {
-    const g = $("#cf-grade");
-    if (g) {
-      if (![...g.options].some((o) => o.value === ai.grade)) g.add(new Option(ai.grade, ai.grade));
-      g.value = ai.grade;
+    // A found grade ticks Graded and lands as just its number — the
+    // identifier answers things like "CGC 9.8", the form stores "9.8".
+    const num = gradeNumberOf(ai.grade);
+    if (num) {
+      const box = $("#cf-graded");
+      if (box) box.checked = true;
+      const wrap = $("#cf-grade-wrap");
+      if (wrap) wrap.style.display = "";
+      const g = $("#cf-grade");
+      if (g) { g.disabled = false; g.value = num; }
     }
   }
   if (ai.isSigned) { const el = $("#cf-signed"); if (el) { el.checked = true; const w = $("#cf-signedby-wrap"); if (w) w.style.display = ""; } }
