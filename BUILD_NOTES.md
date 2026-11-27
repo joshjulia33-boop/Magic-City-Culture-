@@ -1288,3 +1288,25 @@ rotating weekly — the front-page companion to the Wall of Grails.
   pre-migration rows; a single grail is always the pick; no
   horizontal overflow; zero JS errors. Market stays closed; Stripe
   untouched; no database step.
+
+## Update — Newest collectors welcome strip (2026-11-27)
+
+- **Front end only** (`newestCollectorsHtml()` in `web/app.js`): a
+  "👋 NEWEST COLLECTORS" strip on the Gallery under the Wall of
+  Grails. The three most recent joiners from `public_profiles`
+  (sorted by `created_at`, newest first — profiles load oldest-first,
+  so the sort matters), each a pill chip (`.newest-chip`) with the
+  member's avatar (photo or initial), name (+ FOUNDER tag), handle
+  and join month, tapping through to their shelf via the existing
+  `goto-profile` action. Public profile data only.
+- **Hidden states**: renders nothing when there are no profiles;
+  with fewer than three members it shows who there is. Chips wrap
+  (flex-wrap, break-word names) so long names/handles never push
+  the page sideways at phone widths.
+- **Verified**: headless Chrome at 360/390/412/430px with stubbed
+  data mirroring live shapes — **41/41 checks**: exactly the three
+  newest of five profiles, newest-first, correct ids/handles/join
+  months; a chip tap lands on that member's profile; hidden with
+  zero profiles; one chip for one profile; a 40-character unbroken
+  name + handle causes no horizontal overflow; zero JS errors. No
+  database step; market stays closed.

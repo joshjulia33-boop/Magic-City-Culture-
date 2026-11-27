@@ -827,6 +827,30 @@ function grailOfWeekHtml() {
     <div class="grid grail-week-grid">${galleryCardHtml(pick)}</div>
   </section>`;
 }
+/* ---------------- newest collectors ----------------
+   A welcome strip on the Gallery: the three most recent joiners,
+   from public_profiles (loaded for everyone, signed in or not).
+   Each chip is the member's avatar, name and join month, and taps
+   through to their shelf. Renders nothing when there are no
+   profiles at all; with fewer than three members it shows who
+   there is. Public data only — nothing private rides along. */
+function newestCollectorsHtml() {
+  if (!profiles.length) return "";
+  const newest = [...profiles]
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+    .slice(0, 3);
+  return `<section class="newest-strip">
+    <h2 class="heat-title">👋 NEWEST COLLECTORS</h2>
+    <p class="view-sub">Fresh shelves in the Hub — say hello.</p>
+    <div class="newest-row">
+      ${newest.map((p) => `<button type="button" class="newest-chip" data-action="goto-profile" data-id="${p.id}" aria-label="View ${esc(p.display_name)}'s shelf">
+        ${avatarHtml(p)}
+        <span class="newest-meta"><span class="newest-name">${esc(p.display_name)}${p.is_founder ? ' <span class="founder-tag">FOUNDER</span>' : ""}</span>
+        <span class="newest-sub">@${esc(p.handle)} • Joined ${esc(joinedLabel(p.created_at))}</span></span>
+      </button>`).join("")}
+    </div>
+  </section>`;
+}
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -874,6 +898,7 @@ function viewGalleryHtml() {
   ${featuredStripHtml()}
   ${grailOfWeekHtml()}
   ${wallOfGrailsHtml()}
+  ${newestCollectorsHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
   <section>
