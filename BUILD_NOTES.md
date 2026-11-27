@@ -1330,3 +1330,30 @@ No database step; no values; market stays closed.
 Tests: 41/41 headless Chrome @360/390/412/430 (dataset integrity —
 26 entries, 12 months, valid keys/facts; pick logic for today /
 nearest / year-wrap; graceful absence; overflow; zero JS errors).
+
+## Polls (queue #2, feature 6 — 2026-11-27)
+
+Migration supabase/add-polls.sql (folded into schema.sql): polls
+(id, question, created_by, is_active default true, created_at),
+poll_options (id, poll_id fk, label, comic_id fk nullable, sort;
+an option needs a label or a comic), poll_votes (poll_id, option_id,
+collector_id; PK (poll_id, collector_id) = one changeable vote per
+member). RLS: SELECT public for all three (vote counts are community
+data); polls/options INSERT and polls UPDATE only when
+public.is_founder_collector() (polls also created_by = self); votes
+INSERT/UPDATE/DELETE only as self. A guard trigger keeps a vote's
+option inside its own poll. Front end degrades gracefully until the
+migration runs (pollsReady from the loadPolls probe in the public
+load chain). Gallery: "COMMUNITY POLL" panel under the On This Day
+strip showing the newest ACTIVE poll — options as rows with cover
+thumbs for comic-linked choices, live % bars + totals; members tap
+to vote / tap another to change; signed-out visitors see results
+with a join note. Admin dashboard gains a POLLS section: create
+(question + up to 4 choices, each a label and/or a pick from the
+founder's own books; ids are client-generated UUIDs so the create
+works in one round trip) and CLOSE/REOPEN per poll.
+Tests: PGlite 19/19 against a simulated live schema (idempotency,
+founder-only writes, public read, PK/trigger enforcement); Chrome
+56/56 @360/390/412/430 (results for visitors, vote + change-vote
+write shapes and counts, admin create/close flows, panel hides with
+no active poll, overflow, zero JS errors). Market stays closed.

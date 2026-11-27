@@ -207,6 +207,10 @@ let detailCommentsFor = null;    // comic id detailComments belongs to
 let commentsReady = true;        // false until the book_comments table exists (add-comments.sql)
 let allFollows = [];             // follows rows — public, drives the counts (add-follows.sql)
 let followsReady = true;         // false until the follows table exists (add-follows.sql)
+let allPolls = [];               // polls rows — public (add-polls.sql)
+let allPollOptions = [];         // poll_options rows — public
+let allPollVotes = [];           // poll_votes rows — public, drives the counts
+let pollsReady = true;           // false until the polls tables exist (add-polls.sql)
 let grailsReady = true;          // false until comics.is_grail exists (add-grail.sql)
 let avatarReady = true;          // false until collectors.avatar_url exists (add-avatar.sql)
 let msgStyleReady = true;        // false until collectors.msg_color/msg_font exist (add-message-style.sql)
@@ -497,6 +501,26 @@ async function loadFollows() {
   const { data, error } = await sb.from("follows").select("*").limit(5000);
   if (error) { followsReady = false; allFollows = []; }
   else { followsReady = true; allFollows = data || []; }
+  await loadPolls();
+}
+// Polls load with the public data too (questions, options and vote
+// counts are public community data — see ../supabase/add-polls.sql)
+// and never break it: until that SQL runs, the tables don't exist
+// and the POLLS panel and the Admin poll tools stay out of the way.
+async function loadPolls() {
+  const [p, o, v] = await Promise.all([
+    sb.from("polls").select("*").order("created_at", { ascending: false }).limit(50),
+    sb.from("poll_options").select("*").order("sort", { ascending: true }).limit(500),
+    sb.from("poll_votes").select("*").limit(5000),
+  ]);
+  if (p.error || o.error || v.error) {
+    pollsReady = false; allPolls = []; allPollOptions = []; allPollVotes = [];
+    return;
+  }
+  pollsReady = true;
+  allPolls = p.data || [];
+  allPollOptions = o.data || [];
+  allPollVotes = v.data || [];
 }
 async function resolveMyProfile() {
   myProfile = null;
@@ -890,6 +914,104 @@ function onThisDayHtml() {
     </div>
   </section>`;
 }
+/* ---------- polls (queue #2, feature 6) ----------
+   Data: polls / poll_options / poll_votes (add-polls.sql), loaded
+   with the public data. The Gallery panel shows the newest ACTIVE
+   poll; members vote (and can change their vote — one row per member
+   per poll), signed-out visitors see the results with a join note.
+   Only the founder creates polls, from the Admin dashboard. Until
+   the migration runs, pollsReady is false and all of this hides. */
+function activePoll() {
+  return allPolls.find((p) => p.is_active) || null;
+}
+function pollOptionsFor(pollId) {
+  return allPollOptions
+    .filter((o) => o.poll_id === pollId)
+    .sort((a, b) => (a.sort || 0) - (b.sort || 0));
+}
+function pollVoteCount(pollId, optionId) {
+  return allPollVotes.filter((v) => v.poll_id === pollId && (!optionId || v.option_id === optionId)).length;
+}
+function myPollVote(pollId) {
+  return myProfile
+    ? allPollVotes.find((v) => v.poll_id === pollId && v.collector_id === myProfile.id) || null
+    : null;
+}
+function pollOptionComic(o) {
+  return o.comic_id ? gallery.find((c) => c.id === o.comic_id) || null : null;
+}
+function pollOptionLabel(o) {
+  if (o.label && o.label.trim()) return o.label;
+  const c = pollOptionComic(o);
+  return c ? `${c.title} ${c.issue}`.trim() : "Choice";
+}
+function pollPanelHtml() {
+  if (!pollsReady) return "";
+  const poll = activePoll();
+  if (!poll) return "";
+  const opts = pollOptionsFor(poll.id);
+  if (!opts.length) return "";
+  const total = pollVoteCount(poll.id);
+  const mine = myPollVote(poll.id);
+  const rows = opts.map((o) => {
+    const n = pollVoteCount(poll.id, o.id);
+    const pct = total ? Math.round((n / total) * 100) : 0;
+    const isMine = !!mine && mine.option_id === o.id;
+    const comic = pollOptionComic(o);
+    const inner = `${comic ? `<span class="poll-thumb">${pickThumbHtml(comic)}</span>` : ""}
+      <span class="poll-opt-main">
+        <span class="poll-opt-label">${esc(pollOptionLabel(o))}${isMine ? ' <span class="poll-mine">YOUR VOTE ✓</span>' : ""}</span>
+        <span class="poll-bar"><span class="poll-bar-fill${isMine ? " mine" : ""}" style="width:${pct}%"></span></span>
+        <span class="poll-opt-meta">${n} vote${n === 1 ? "" : "s"} • ${pct}%</span>
+      </span>`;
+    return myProfile
+      ? `<button type="button" class="poll-opt${isMine ? " mine" : ""}" data-action="poll-vote" data-id="${o.id}" aria-pressed="${isMine}">${inner}</button>`
+      : `<div class="poll-opt">${inner}</div>`;
+  }).join("");
+  return `<section class="poll-panel">
+    <h2 class="heat-title">🗳️ COMMUNITY POLL</h2>
+    <p class="poll-question">${esc(poll.question)}</p>
+    <div class="poll-opts">${rows}</div>
+    <p class="view-sub">${total} vote${total === 1 ? "" : "s"} so far${myProfile
+      ? (mine ? " — tap another choice to change your vote." : " — tap a choice to vote.")
+      : " — join or sign in to vote."}</p>
+  </section>`;
+}
+async function castPollVote(optionId) {
+  if (!pollsReady) return;
+  if (!user) { openAuth("join"); return; }
+  if (!myProfile) { openProfileForm(); return; }
+  const poll = activePoll();
+  if (!poll || busy) return;
+  const opt = allPollOptions.find((o) => o.id === optionId && o.poll_id === poll.id);
+  if (!opt) return;
+  const mine = myPollVote(poll.id);
+  if (mine && mine.option_id === optionId) return;
+  busy = true;
+  try {
+    if (mine) {
+      const { error } = await sb.from("poll_votes").update({ option_id: optionId })
+        .eq("poll_id", poll.id).eq("collector_id", myProfile.id);
+      if (error) throw error;
+      mine.option_id = optionId;
+    } else {
+      const { error } = await sb.from("poll_votes").insert({
+        poll_id: poll.id, option_id: optionId, collector_id: myProfile.id,
+      });
+      if (error) throw error;
+      allPollVotes.push({
+        poll_id: poll.id, option_id: optionId, collector_id: myProfile.id,
+        created_at: new Date().toISOString(),
+      });
+    }
+    setNotice("Vote counted — thanks!");
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "That vote didn't stick — try again.");
+  } finally {
+    busy = false;
+  }
+}
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -939,6 +1061,7 @@ function viewGalleryHtml() {
   ${wallOfGrailsHtml()}
   ${newestCollectorsHtml()}
   ${onThisDayHtml()}
+  ${pollPanelHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
   <section>
@@ -2186,7 +2309,90 @@ function viewAdminHtml() {
           `${esc(c.collector_name)} (@${esc(c.collector_handle)}) • ${esc(prettyDate(c.created_at))}`,
           `<button type="button" class="btn btn-ghost btn-sm" data-action="open-detail" data-id="${c.id}">VIEW</button>`)).join("")
       : `<p class="empty" style="padding:1rem 0">No books yet.</p>`}
+
+    ${adminPollsHtml()}
   </section>`;
+}
+/* Founder poll tools (feature 6): create a poll (question + 2–4
+   choices, each a label and/or a book from the founder's own shelf)
+   and close/reopen polls. RLS enforces founder-only; this section
+   also hides entirely until add-polls.sql runs. */
+function adminPollsHtml() {
+  if (!pollsReady) return "";
+  const bookChoices = myComics
+    .map((c) => `<option value="${c.id}">${esc(`${c.title} ${c.issue}`.trim())}</option>`)
+    .join("");
+  const optionRow = (i) => `<div class="poll-form-row">
+      <input id="poll-opt-label-${i}" class="input grow" type="text" maxlength="120" placeholder="Choice ${i + 1} label (optional if you pick a book)" />
+      <select id="poll-opt-book-${i}" class="input" aria-label="Choice ${i + 1} book"><option value="">No book</option>${bookChoices}</select>
+    </div>`;
+  const list = allPolls.slice(0, 5).map((p) => {
+    const n = pollVoteCount(p.id);
+    return adminRowHtml("",
+      `${esc(p.question)}`,
+      `${p.is_active ? "ACTIVE" : "Closed"} • ${n} vote${n === 1 ? "" : "s"} • ${esc(prettyDate(p.created_at))}`,
+      `<button type="button" class="btn ${p.is_active ? "btn-ghost" : "btn-blue"} btn-sm" data-action="poll-toggle" data-id="${p.id}">${p.is_active ? "CLOSE" : "REOPEN"}</button>`);
+  }).join("");
+  return `<h3 class="sub-title">POLLS</h3>
+    <div class="poll-form">
+      <input id="poll-question" class="input grow" type="text" maxlength="200" placeholder="Ask the community a question…" aria-label="Poll question" />
+      ${[0, 1, 2, 3].map(optionRow).join("")}
+      <button type="button" class="btn btn-pink" data-action="poll-create">START POLL</button>
+      <p class="view-sub">Each choice takes a label, a book from your shelf, or both. The newest ACTIVE poll shows on the front page.</p>
+    </div>
+    ${list || `<p class="empty" style="padding:1rem 0">No polls yet — start the first one above.</p>`}`;
+}
+async function createPoll() {
+  if (!pollsReady || !myProfile?.is_founder || busy) return;
+  const question = (document.getElementById("poll-question")?.value || "").trim();
+  if (!question) { setNotice("Type the poll question first."); return; }
+  const opts = [];
+  for (let i = 0; i < 4; i++) {
+    const label = (document.getElementById(`poll-opt-label-${i}`)?.value || "").trim();
+    const comicId = document.getElementById(`poll-opt-book-${i}`)?.value || "";
+    if (label || comicId) opts.push({ label, comic_id: comicId || null, sort: opts.length });
+  }
+  if (opts.length < 2) { setNotice("Give the poll at least two choices."); return; }
+  busy = true;
+  try {
+    const pollId = crypto.randomUUID();
+    const { error } = await sb.from("polls").insert({
+      id: pollId, question, created_by: myProfile.id, is_active: true,
+    });
+    if (error) throw error;
+    const rows = opts.map((o) => ({ id: crypto.randomUUID(), poll_id: pollId, ...o }));
+    const { error: oErr } = await sb.from("poll_options").insert(rows);
+    if (oErr) throw oErr;
+    allPolls.unshift({
+      id: pollId, question, created_by: myProfile.id, is_active: true,
+      created_at: new Date().toISOString(),
+    });
+    allPollOptions.push(...rows);
+    setNotice("Poll started — it's live on the front page.");
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "The poll didn't start — try again.");
+  } finally {
+    busy = false;
+  }
+}
+async function togglePoll(pollId) {
+  if (!pollsReady || !myProfile?.is_founder || busy) return;
+  const poll = allPolls.find((p) => p.id === pollId);
+  if (!poll) return;
+  busy = true;
+  try {
+    const next = !poll.is_active;
+    const { error } = await sb.from("polls").update({ is_active: next }).eq("id", pollId);
+    if (error) throw error;
+    poll.is_active = next;
+    setNotice(next ? "Poll reopened — it's on the front page." : "Poll closed.");
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "That didn't stick — try again.");
+  } finally {
+    busy = false;
+  }
 }
 async function setFeatured(kind, id, value) {
   const table = kind === "book" ? "comics" : "collectors";
@@ -4343,6 +4549,9 @@ document.addEventListener("click", (e) => {
     case "admin-feature-member": setFeatured("member", id, true); break;
     case "admin-unfeature-member": setFeatured("member", id, false); break;
     case "report-resolve": resolveReport(id, "resolved"); break;
+    case "poll-vote": castPollVote(id); break;
+    case "poll-create": createPoll(); break;
+    case "poll-toggle": togglePoll(id); break;
     case "report-dismiss": resolveReport(id, "dismissed"); break;
     case "report-book": openReportModal("book", id, "this book"); break;
     case "report-member": { const rp = profileById(id); openReportModal("member", id, rp ? `@${rp.handle}` : "this member"); break; }

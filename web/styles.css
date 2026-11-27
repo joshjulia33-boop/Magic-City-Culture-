@@ -709,6 +709,32 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .grail-week .view-sub { overflow-wrap: break-word; }
 .grail-week-grid { margin-top: 0.75rem; }
 /* newest collectors welcome strip: pill chips that wrap on phones */
+.poll-panel { margin-top: 1.25rem; }
+.poll-question {
+  font-family: "Archivo Black", "Arial Black", sans-serif;
+  font-size: 19px; margin-top: 0.6rem; overflow-wrap: break-word;
+}
+.poll-opts { display: flex; flex-direction: column; gap: 0.55rem; margin-top: 0.7rem; }
+.poll-opt {
+  display: flex; align-items: center; gap: 0.7rem; width: 100%;
+  text-align: left; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: 0.6rem 0.75rem; color: var(--text);
+}
+.poll-opt.mine { border-color: var(--pink); }
+.poll-thumb { flex: none; width: 36px; height: 48px; border-radius: 6px; overflow: hidden; display: block; }
+.poll-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.poll-thumb .pick-tile { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.poll-opt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.poll-opt-label { font-weight: 800; overflow-wrap: break-word; }
+.poll-mine { color: var(--pink); font-size: 11px; font-weight: 900; letter-spacing: 0.05em; }
+.poll-bar { display: block; height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.poll-bar-fill { display: block; height: 100%; background: var(--blue); border-radius: 99px; }
+.poll-bar-fill.mine { background: var(--pink); }
+.poll-opt-meta { font-size: 12px; color: var(--dim); font-weight: 700; }
+.poll-form { display: flex; flex-direction: column; gap: 0.55rem; margin-bottom: 1rem; }
+.poll-form-row { display: flex; gap: 0.55rem; flex-wrap: wrap; }
+.poll-form-row .input { min-width: 0; }
+.poll-form-row select.input { flex: 0 1 180px; }
 .onthisday-strip { margin-top: 1.25rem; }
 .onthisday-card {
   background: var(--panel); border: 1px solid var(--line);
