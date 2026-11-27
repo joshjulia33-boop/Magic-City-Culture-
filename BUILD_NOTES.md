@@ -1385,3 +1385,26 @@ stays out of public_profiles, own-row-only writes); Chrome 55/55
 4-unread watermark math, mark-seen write + state clear, NULL
 watermark = all unread, pre-migration hidden, overflow, zero JS
 errors). Market stays closed; no values anywhere in the panel.
+
+## Community Pulse (queue #2, feature 8 — 2026-11-27)
+
+Front-end only, NO database step. A "📡 COMMUNITY PULSE" panel on
+the Gallery (under Hot Up & Coming, above the book grid) merging
+the latest PUBLIC community activity newest-first, capped at 12
+rows (avatar + one line + relative time): books added (from the
+gallery data), comments posted, and members joined.
+book_comments is already a public read, so the newest 12 comment
+rows now load with the public data (recentComments, in
+loadBookSocial next to the existing comments probe) — the panel
+names the book from the gallery data and falls back to "a book"
+when the book is gone. Public data only: no values anywhere, and
+messages, offers and friendships are private by design and never
+surface here. The panel renders nothing when there is no activity
+at all, and simply carries books + joins if the comments table is
+absent. Market stays closed.
+Tests: Chrome 87/87 @360/390/412/430, signed-in and signed-out
+(9-event merge in exact time order, comment naming its book and
+the removed-book fallback, join rows, avatar + time on every row,
+no "$" anywhere, the 12-row cap with 15+ events, hidden when
+empty, books + joins only with no comments table, overflow, zero
+JS errors).

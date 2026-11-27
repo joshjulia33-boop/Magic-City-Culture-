@@ -216,6 +216,7 @@ let avatarReady = true;          // false until collectors.avatar_url exists (ad
 let msgStyleReady = true;        // false until collectors.msg_color/msg_font exist (add-message-style.sql)
 let notificationsReady = true;   // false until collectors.notifications_seen_at exists (add-notifications.sql)
 let myBookComments = [];         // comments on MY books — feeds Notifications (feature 7)
+let recentComments = [];         // newest community comments — feeds Community Pulse (feature 8)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -493,6 +494,16 @@ async function loadBookSocial() {
   else { likesReady = true; bookLikes = data || []; }
   const probe = await sb.from("book_comments").select("id").limit(1);
   commentsReady = !probe.error;
+  // The newest comments community-wide feed the Community Pulse
+  // panel (feature 8) — book_comments is a public read, so this is
+  // the same data the book pages show. Until add-comments.sql runs
+  // it simply stays empty and the Pulse carries books + joins only.
+  recentComments = [];
+  if (commentsReady) {
+    const { data, error } = await sb.from("book_comments").select("*")
+      .order("created_at", { ascending: false }).limit(12);
+    if (!error) recentComments = data || [];
+  }
   await loadFollows();
 }
 // Follows load with the public data too (counts are public — see
@@ -1032,6 +1043,44 @@ async function castPollVote(optionId) {
     busy = false;
   }
 }
+/* ---------- community pulse (queue #2, feature 8) ----------
+   A "COMMUNITY PULSE" panel on the Gallery: the latest public
+   community activity merged newest-first — books added (from the
+   gallery data), comments posted (book_comments is a public read;
+   the newest rows load with the public data into recentComments),
+   and members joined (public_profiles). Public data only: no
+   values anywhere, and never messages, offers or friendships —
+   those are private by design and stay out. Hidden when there is
+   no activity at all. */
+function communityPulseHtml() {
+  const ev = [];
+  const nameOf = (p) => (p ? p.display_name : "A member");
+  const bookName = (c) => `${c.title} ${c.issue}`.trim();
+  for (const c of gallery) {
+    const who = profileById(c.collector_id);
+    ev.push({ at: c.created_at, who, text: `${nameOf(who)} added ${bookName(c)} to their shelf` });
+  }
+  for (const cm of recentComments) {
+    const who = profileById(cm.author_id);
+    const book = gallery.find((c) => c.id === cm.comic_id);
+    ev.push({ at: cm.created_at, who, text: `${nameOf(who)} commented on ${book ? bookName(book) : "a book"}` });
+  }
+  for (const p of profiles) {
+    ev.push({ at: p.created_at, who: p, text: `${p.display_name} joined the Hub` });
+  }
+  ev.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  const rows = ev.slice(0, 12);
+  if (!rows.length) return "";
+  return `<section class="pulse-panel">
+    <h2 class="heat-title">📡 COMMUNITY PULSE</h2>
+    <div class="pulse-rows">${rows.map((e) => `<div class="pulse-row">
+      ${e.who ? avatarHtml(e.who) : ""}
+      <span class="pulse-text">${esc(e.text)}</span>
+      <span class="pulse-time">${esc(timeAgo(e.at))}</span>
+    </div>`).join("")}</div>
+  </section>`;
+}
+
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -1084,6 +1133,7 @@ function viewGalleryHtml() {
   ${pollPanelHtml()}
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
+  ${communityPulseHtml()}
   <section>
     <div class="toolbar">
       <label class="sr-only" for="gallery-search" style="position:absolute;left:-9999px">Search the gallery</label>

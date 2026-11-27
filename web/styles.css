@@ -720,6 +720,20 @@ footer.site { border-top: 1px solid var(--border); padding: 1.5rem 0 2.5rem; col
 .notify-row.unread .notify-text { font-weight: 800; }
 .notify-time { color: var(--dim); font-size: 12px; font-weight: 700; flex: none; }
 .notify-panel .btn { margin-top: 0.7rem; }
+/* community pulse: merged public activity rows on the Gallery */
+.pulse-panel { margin-top: 1.25rem; }
+.pulse-rows {
+  margin-top: 0.7rem; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel); padding: 0.25rem 0.75rem;
+}
+.pulse-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.5rem 0; border-top: 1px solid var(--line);
+}
+.pulse-row:first-child { border-top: none; }
+.pulse-row .avatar { flex: none; }
+.pulse-text { flex: 1; min-width: 0; overflow-wrap: break-word; }
+.pulse-time { color: var(--dim); font-size: 12px; font-weight: 700; flex: none; }
 .poll-panel { margin-top: 1.25rem; }
 .poll-question {
   font-family: "Archivo Black", "Arial Black", sans-serif;
