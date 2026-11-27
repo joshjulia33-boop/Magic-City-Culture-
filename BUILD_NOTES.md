@@ -1357,3 +1357,31 @@ founder-only writes, public read, PK/trigger enforcement); Chrome
 56/56 @360/390/412/430 (results for visitors, vote + change-vote
 write shapes and counts, admin create/close flows, panel hides with
 no active poll, overflow, zero JS errors). Market stays closed.
+
+## Notifications center (queue #2, feature 7 — 2026-11-27)
+
+Migration supabase/add-notifications.sql (folded into schema.sql):
+one column — collectors.notifications_seen_at timestamptz (nullable).
+Deliberately NOT projected into public_profiles: it is the member's
+private "seen" watermark, read from their own collectors row (the
+own-profile load) and written through the existing update-own
+policy. No new tables, views or policies. Front end: NOTIFICATIONS
+panel at the top of My Shelf (below the values panel), aggregating
+client-side from data already loaded — likes on my books
+(book_likes), comments on my books (book_comments, loaded newest-50
+in loadMine via loadMyBookComments), new followers (follows),
+pending friend requests (friendships), unread messages grouped per
+sender (messages), offers received (offers, included even while the
+market is closed), and want-list matches (feature 9 plugs into the
+same builder via notificationWantEvents). Newest first, cap 30,
+relative times (timeAgo), unread = newer than the watermark (all
+unread when NULL). "MARK ALL SEEN" PATCHes the watermark and
+re-renders. Panel hidden until the migration runs
+(notificationsReady from the key's presence on my own row, the
+avatarReady/msgStyleReady pattern).
+Tests: PGlite 8/8 against a simulated live schema (column lands,
+stays out of public_profiles, own-row-only writes); Chrome 55/55
+@360/390/412/430 (6-event aggregation with self/other exclusions,
+4-unread watermark math, mark-seen write + state clear, NULL
+watermark = all unread, pre-migration hidden, overflow, zero JS
+errors). Market stays closed; no values anywhere in the panel.

@@ -114,6 +114,10 @@ create table if not exists public.collectors (
   -- both ride public_profiles below, like avatar_url.
   msg_color             text,
   msg_font              text,
+  -- Notifications watermark (see add-notifications.sql): when the
+  -- member last pressed "Mark all seen" on My Shelf. PRIVATE by
+  -- design — deliberately NOT projected into public_profiles below.
+  notifications_seen_at timestamptz,
   is_founder            boolean not null default false,
   -- The founder's front-page pick (see add-admin.sql). Publicly read
   -- through public_profiles; changeable ONLY by the founder, on any

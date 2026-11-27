@@ -214,6 +214,8 @@ let pollsReady = true;           // false until the polls tables exist (add-poll
 let grailsReady = true;          // false until comics.is_grail exists (add-grail.sql)
 let avatarReady = true;          // false until collectors.avatar_url exists (add-avatar.sql)
 let msgStyleReady = true;        // false until collectors.msg_color/msg_font exist (add-message-style.sql)
+let notificationsReady = true;   // false until collectors.notifications_seen_at exists (add-notifications.sql)
+let myBookComments = [];         // comments on MY books — feeds Notifications (feature 7)
 let paymentsOn = false;          // true once stripe-config says the Stripe keys exist
 let stripePublishableKey = "";   // publishable key from stripe-config (safe in the browser)
 let payoutSyncTried = false;     // one automatic payout-status sync per sign-in
@@ -536,10 +538,15 @@ async function resolveMyProfile() {
   // they exist, the Edit Profile Message style section stays hidden
   // and every bubble wears the site defaults.
   msgStyleReady = !myProfile || ("msg_color" in myProfile && "msg_font" in myProfile);
+  // Same for the notifications watermark (add-notifications.sql):
+  // until it exists, the NOTIFICATIONS panel stays hidden. It is a
+  // private field — it never rides public_profiles.
+  notificationsReady = !myProfile || "notifications_seen_at" in myProfile;
 }
 async function loadMine() {
   myComics = []; myValues = new Map(); myOrders = []; myOffers = []; offersReady = true;
   myFriendships = []; friendsReady = true;
+  myBookComments = [];
   myReports = []; adminReady = true;
   myMessages = []; messagesReady = true;
   if (!myProfile) return;
@@ -572,6 +579,19 @@ async function loadMine() {
   await loadMyFriendships();
   await loadAdmin();
   await loadMyMessages();
+  await loadMyBookComments();
+}
+// Comments on MY books, newest first — loaded only for the
+// Notifications panel (feature 7); the per-book threads still load
+// on demand in the detail view. Never breaks the shelf: until
+// add-comments.sql runs (commentsReady false) it simply stays empty.
+async function loadMyBookComments() {
+  myBookComments = [];
+  if (!myProfile || !commentsReady || !myComics.length) return;
+  const { data, error } = await sb.from("book_comments").select("*")
+    .in("comic_id", myComics.map((c) => c.id))
+    .order("created_at", { ascending: false }).limit(50);
+  if (!error) myBookComments = data || [];
 }
 // Trade offers load separately and never break the rest of the shelf:
 // until supabase/add-market-trades.sql runs, the offers tables don't
@@ -2080,6 +2100,123 @@ function payoutsPanelHtml(p) {
     ${body}
   </div>`;
 }
+/* ---------- notifications (queue #2, feature 7) ----------
+   A My Shelf panel aggregating what's already loaded: likes and
+   comments on my books, new followers, pending friend requests,
+   unread messages (grouped per sender), offers received, and
+   want-list matches (feature 9 plugs in via notificationWantEvents).
+   The only stored state is collectors.notifications_seen_at
+   (add-notifications.sql) — a private watermark on my own row,
+   never in public_profiles. Events newer than the watermark are
+   unread; "Mark all seen" PATCHes it to now. Until the migration
+   runs, notificationsReady is false and the panel stays hidden. */
+function timeAgo(iso) {
+  const t = new Date(iso).getTime();
+  if (!t) return "";
+  const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return prettyDate(iso);
+}
+function notificationEvents() {
+  if (!myProfile) return [];
+  const ev = [];
+  const myIds = new Set(myComics.map((c) => c.id));
+  const myBookName = (id) => {
+    const c = myComics.find((x) => x.id === id);
+    return c ? `${c.title} ${c.issue}`.trim() : "your book";
+  };
+  const nameOf = (p) => (p ? p.display_name : "A member");
+  if (likesReady) {
+    for (const l of bookLikes) {
+      if (!myIds.has(l.comic_id) || l.collector_id === myProfile.id) continue;
+      const who = profileById(l.collector_id);
+      ev.push({ at: l.created_at, who, text: `${nameOf(who)} liked your book ${myBookName(l.comic_id)}` });
+    }
+  }
+  for (const c of myBookComments) {
+    if (c.author_id === myProfile.id) continue;
+    const who = profileById(c.author_id);
+    ev.push({ at: c.created_at, who, text: `${nameOf(who)} commented on your book ${myBookName(c.comic_id)}` });
+  }
+  if (followsReady) {
+    for (const f of allFollows) {
+      if (f.followee_id !== myProfile.id) continue;
+      const who = profileById(f.follower_id);
+      ev.push({ at: f.created_at, who, text: `${nameOf(who)} started following you` });
+    }
+  }
+  if (friendsReady) {
+    for (const f of myFriendships) {
+      if (f.addressee_id !== myProfile.id || f.status !== "pending") continue;
+      const who = profileById(f.requester_id);
+      ev.push({ at: f.created_at, who, text: `${nameOf(who)} sent you a friend request` });
+    }
+  }
+  if (messagesReady) {
+    const bySender = new Map();
+    for (const m of myMessages) {
+      if (m.recipient_id !== myProfile.id || m.read_at) continue;
+      const cur = bySender.get(m.sender_id) || { count: 0, at: m.created_at };
+      cur.count += 1;
+      if (String(m.created_at) > String(cur.at)) cur.at = m.created_at;
+      bySender.set(m.sender_id, cur);
+    }
+    for (const [senderId, agg] of bySender) {
+      const who = profileById(senderId);
+      ev.push({ at: agg.at, who, text: `${nameOf(who)} sent you ${agg.count} unread message${agg.count === 1 ? "" : "s"}` });
+    }
+  }
+  if (offersReady) {
+    for (const o of myOffers) {
+      if (o.to_collector_id !== myProfile.id || o.status !== "pending") continue;
+      const who = profileById(o.from_collector_id);
+      ev.push({ at: o.created_at, who, text: `${nameOf(who)} sent you a trade offer` });
+    }
+  }
+  // Want-list matches join in with feature 9 (same builder).
+  if (typeof notificationWantEvents === "function") ev.push(...notificationWantEvents());
+  ev.sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+  return ev.slice(0, 30);
+}
+function notificationsPanelHtml() {
+  if (!myProfile || !notificationsReady) return "";
+  const events = notificationEvents();
+  const seenAt = myProfile.notifications_seen_at ? new Date(myProfile.notifications_seen_at).getTime() : 0;
+  const isUnread = (e) => new Date(e.at).getTime() > seenAt;
+  const unreadCount = events.filter(isUnread).length;
+  const rows = events.map((e) => `<div class="notify-row${isUnread(e) ? " unread" : ""}">
+      ${e.who ? avatarHtml(e.who) : ""}
+      <span class="notify-text">${esc(e.text)}</span>
+      <span class="notify-time">${esc(timeAgo(e.at))}</span>
+    </div>`).join("");
+  return `<div class="values-panel notify-panel">
+    <p class="vp-tag">🔔 NOTIFICATIONS${unreadCount ? ` — ${unreadCount} NEW` : ""}</p>
+    ${events.length ? rows : `<p class="vp-note">All quiet — likes, comments, followers, requests and messages will show up here.</p>`}
+    ${unreadCount ? `<button type="button" class="btn btn-blue" data-action="notifications-seen">MARK ALL SEEN</button>` : ""}
+  </div>`;
+}
+async function markNotificationsSeen() {
+  if (!myProfile || !notificationsReady || busy) return;
+  busy = true;
+  try {
+    const nowIso = new Date().toISOString();
+    const { error } = await sb.from("collectors")
+      .update({ notifications_seen_at: nowIso }).eq("id", myProfile.id);
+    if (error) throw error;
+    myProfile.notifications_seen_at = nowIso;
+    render();
+  } catch (ex) {
+    setNotice(ex.message || "That didn't save — try again.");
+  } finally {
+    busy = false;
+  }
+}
 function viewShelfHtml() {
   if (!user) {
     return `<section class="block"><div class="center-note">
@@ -2152,6 +2289,7 @@ function viewShelfHtml() {
         ${p.show_values_publicly ? "MAKE MY VALUES PRIVATE AGAIN" : "MAKE MY VALUES PUBLIC"}
       </button>
     </div>
+    ${notificationsPanelHtml()}
     ${MARKET_OPEN ? payoutsPanelHtml(p) : ""}
     ${friendsPanelHtml(p)}
     ${followingPanelHtml(p)}
@@ -4567,6 +4705,7 @@ document.addEventListener("click", (e) => {
     case "radar-clear-artist": radarArtist = ""; radarSelectedId = null; { const inp = $("#radar-artist"); if (inp) inp.value = ""; } refreshRadarResults(); break;
     case "radar-geolocate": radarMsg = ""; tryRadarGeolocate(false); break;
     case "toggle-values": toggleValues(); break;
+    case "notifications-seen": markNotificationsSeen(); break;
     case "copy-ref-link": copyReferralLink(); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;
     case "add-book": openComicForm(null); break;
