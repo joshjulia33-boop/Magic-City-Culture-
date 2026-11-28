@@ -1166,6 +1166,13 @@ the logo artwork, never instead of it.
   behind the hero and panels; nothing competes with content.
   (Harness: `hidden_files/titles-test/` in the website goal
   workspace.)
+- **REMOVED (2026-11-27, later the same day)**: at Joshua's
+  request the titles backdrop came back out — `web/titles.js`
+  deleted, the `#titles-backdrop` div and its script tag removed
+  from index.html, and the `.titles-backdrop` / `.tb-*` rules
+  removed from styles.css. The backdrop is the logo artwork only
+  again (`#site-backdrop` from logo.js), exactly as it was before
+  this update.
 
 ## Update — Milestone badges (2026-11-27)
 

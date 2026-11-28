@@ -37,33 +37,6 @@ body {
   background-size: cover; background-position: center 15%;
   opacity: 0.14;
 }
-/* Famous Marvel/DC title names in the masthead's comic lettering,
-   scattered behind the page (rendered by titles.js). Same z-index 0
-   as the artwork layer but later in the document, so the titles paint
-   ABOVE the artwork and BELOW the z-index 1 content. It must only
-   whisper — 7% opacity — and it can never intercept a tap or scroll
-   the page: fixed, clipped, pointer-events none. Title names as
-   styled text only; no logos, symbols or images. */
-.titles-backdrop {
-  position: fixed; inset: 0; z-index: 0; overflow: hidden;
-  pointer-events: none; user-select: none;
-  opacity: 0.07;
-}
-.tb-title {
-  position: absolute; transform-origin: center;
-  font-family: var(--font-display);
-  line-height: 1; white-space: nowrap; letter-spacing: 0.01em;
-  -webkit-text-stroke: 2px #0d0b24;
-}
-.tb-pink { color: var(--accent); }
-.tb-blue { color: var(--blue); }
-.tb-white { color: var(--text); }
-/* Sizes scale with the viewport so the collage keeps its proportions
-   from a phone up to a desktop; the rem caps are the design sizes. */
-.tb-s  { font-size: clamp(1.3rem, 4.5vw, 2.1rem); -webkit-text-stroke-width: 1px; }
-.tb-m  { font-size: clamp(1.8rem, 6.5vw, 3.3rem); -webkit-text-stroke-width: 1.5px; }
-.tb-l  { font-size: clamp(2.5rem, 9vw, 4.6rem); }
-.tb-xl { font-size: clamp(3.1rem, 12vw, 6rem); }
 header.site, main.wrap, footer.site, body > .wrap { position: relative; z-index: 1; }
 button, input, select, textarea { font-family: inherit; }
 button { cursor: pointer; }
