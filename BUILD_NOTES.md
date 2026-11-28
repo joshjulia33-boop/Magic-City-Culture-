@@ -1488,3 +1488,25 @@ and quotes round-trips with doubled quotes, a newline inside a
 variant round-trips, for-sale asking price exports while an
 asking price sitting on an owned book does not, null/missing
 values export blank; no button on an empty shelf or signed out).
+
+## Share previews (queue #2, feature 12 — 2026-11-27)
+
+Front-end only, NO database step. `web/index.html` now carries
+Open Graph and Twitter card meta tags so a shared link to the
+site previews properly in chats and social feeds: og:title
+"Magic City Culture — The Collector's Hub", og:description built
+on the tagline ("Magic City Culture presents The Collector's
+Hub — a shared gallery for comic collectors. EVERY COLLECTOR.
+ONE COMMUNITY."), og:type "website", og:url
+https://magic-city-culture.vercel.app/, and matching
+twitter:card "summary" / twitter:title / twitter:description.
+There is deliberately NO og:image: the site has no hosted image
+file (the favicon is a `data:` URI and the logo artwork ships as
+JS data), so previews are text-only rather than hotlinking an
+image from somewhere else. If a real hosted logo file is ever
+added under web/, add og:image pointing at it then. Nothing else
+changed — config.js untouched, market stays closed.
+Tests: Chrome 12/12 @390 (page loads and renders the app with
+zero JS errors and no horizontal overflow; every tag read back
+from the DOM head with its exact value; og:image asserted
+absent).
