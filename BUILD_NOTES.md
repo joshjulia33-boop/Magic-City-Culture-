@@ -1458,3 +1458,33 @@ cover-type / signer bars with widths, Jim Lee counted once
 despite a second wishlist copy, status rows summing to all
 books, 40-char unbroken names with no overflow at 360px, hidden
 on an empty shelf, zero JS errors).
+
+## Export your shelf (queue #2, feature 11 — 2026-11-27)
+
+Front-end only, NO database step. An "⬇ EXPORT MY SHELF (CSV)"
+button in the My Shelf values panel (shown when the shelf has at
+least one book) downloads `my-shelf-export.csv`, built entirely
+client-side from data already loaded on the member's device: one
+row per book on their shelf (every status, wishlist and sold
+included) with Title, Issue, Publisher, Variant, Grade, Signed,
+Signed by, COA, Remark, Cover type (semicolon-joined), Status,
+Asking price, Purchase price and Current value. Money is plain
+dollars-and-cents (25.99). The asking price is exported ONLY
+where the book is actually listed for sale; purchase price and
+current value come from the member's own private comic_values
+rows — this is the owner's own file, the one place those numbers
+may leave the site, and the confirmation notice says so. Fields
+are RFC 4180-escaped (quoted when they contain a comma, quote or
+newline; inner quotes doubled), CRLF line endings, UTF-8 BOM so
+Excel opens it cleanly. Nothing is sent anywhere — the file is a
+Blob download. Market stays closed; no other member's data is
+ever included.
+Tests: Chrome 30/30 @360/390/412/430 (button present and
+labelled at every width, no overflow, zero JS errors; the real
+download captured both as a Blob and as a file on disk via CDP —
+filename and full byte content verified including the BOM; CSV
+parsed back and every cell asserted: a title containing a comma
+and quotes round-trips with doubled quotes, a newline inside a
+variant round-trips, for-sale asking price exports while an
+asking price sitting on an owned book does not, null/missing
+values export blank; no button on an empty shelf or signed out).

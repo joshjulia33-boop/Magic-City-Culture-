@@ -2394,6 +2394,52 @@ function myStatsPanelHtml() {
     <p class="vp-note">Counts and totals cover the books on your shelf — wishlist books aren't owned, so they only appear in BY STATUS and in your Want List above.</p>
   </div>`;
 }
+/* Export your shelf (queue #2, feature 11): a CSV of the signed-in
+   member's OWN books, built entirely client-side from data already
+   on this device — their comics plus their own private comic_values
+   rows. The asking price is included only where the book is listed
+   for sale; purchase price and current value are the member's own
+   private numbers leaving in their own file, never shown anywhere
+   else. Fields are RFC 4180-escaped (quoted when they contain a
+   comma, quote or newline; inner quotes doubled). */
+function csvField(v) {
+  const s = String(v ?? "");
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function csvMoney(cents) {
+  return cents === null || cents === undefined ? "" : (cents / 100).toFixed(2);
+}
+function exportShelfCsv() {
+  if (!myProfile) return;
+  if (!myComics.length) {
+    setNotice("Your shelf is empty — add a book first, then export.");
+    return;
+  }
+  const header = ["Title", "Issue", "Publisher", "Variant", "Grade", "Signed", "Signed by", "COA", "Remark", "Cover type", "Status", "Asking price (USD)", "Purchase price (USD)", "Current value (USD)"];
+  const lines = [header.map(csvField).join(",")];
+  for (const c of myComics) {
+    const v = myValues.get(c.id);
+    lines.push([
+      c.title, c.issue, c.publisher, c.variant, c.grade,
+      c.is_signed ? "Yes" : "No", c.signed_by || "",
+      c.has_coa ? "Yes" : "No", c.has_remark ? "Yes" : "No",
+      coverTypesOf(c).join("; "), c.status,
+      c.status === "for_sale" ? csvMoney(c.asking_price_cents) : "",
+      v ? csvMoney(v.purchase_price_cents) : "",
+      v ? csvMoney(v.current_value_cents) : "",
+    ].map(csvField).join(","));
+  }
+  const blob = new Blob(["\uFEFF" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "my-shelf-export.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setNotice(`Exported ${myComics.length} book${myComics.length === 1 ? "" : "s"} to my-shelf-export.csv — it includes your private numbers, so keep the file somewhere private.`);
+}
 async function markNotificationsSeen() {
   if (!myProfile || !notificationsReady || busy) return;
   busy = true;
@@ -2481,6 +2527,7 @@ function viewShelfHtml() {
       <button type="button" class="btn ${p.show_values_publicly ? "btn-ghost" : "btn-blue"}" data-action="toggle-values" aria-pressed="${p.show_values_publicly}">
         ${p.show_values_publicly ? "MAKE MY VALUES PRIVATE AGAIN" : "MAKE MY VALUES PUBLIC"}
       </button>
+      ${myComics.length ? `<div class="row-actions"><button type="button" class="btn btn-ghost" data-action="export-shelf">⬇ EXPORT MY SHELF (CSV)</button></div>` : ""}
     </div>
     ${notificationsPanelHtml()}
     ${wantListPanelHtml()}
@@ -4900,6 +4947,7 @@ document.addEventListener("click", (e) => {
     case "radar-clear-artist": radarArtist = ""; radarSelectedId = null; { const inp = $("#radar-artist"); if (inp) inp.value = ""; } refreshRadarResults(); break;
     case "radar-geolocate": radarMsg = ""; tryRadarGeolocate(false); break;
     case "toggle-values": toggleValues(); break;
+    case "export-shelf": exportShelfCsv(); break;
     case "notifications-seen": markNotificationsSeen(); break;
     case "copy-ref-link": copyReferralLink(); break;
     case "copy-ref-claude": copyTextFromField("ref-claude-text", el); break;
