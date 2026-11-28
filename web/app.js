@@ -1082,7 +1082,7 @@ function communityPulseHtml() {
 }
 
 /* ---------- free reads library ----------
-   "📚 FREE READS — THIS HOUR": five public-domain Golden Age
+   "📚 FREE READS — THIS HOUR": six public-domain Golden Age
    comics that everyone — signed in or not — can read free, right
    now, at the source. Data is the static pool in web/library.js
    (window.MCC_LIBRARY): every item is a verified public-domain
@@ -1091,10 +1091,10 @@ function communityPulseHtml() {
    checked live before inclusion — see BUILD_NOTES.md, "Free
    Reads library". The site only ever LINKS OUT to the source's
    read page; comic files are never copied, rehosted or embedded.
-   The five picks rotate HOURLY and deterministically: the hour
+   The six picks rotate HOURLY and deterministically: the hour
    index (whole hours since the Unix epoch) steps the pool offset
-   by five, so every visitor in the same hour sees the same five
-   and a fresh five steps in on the hour. No database step, no
+   by six, so every visitor in the same hour sees the same six
+   and a fresh six steps in on the hour. No database step, no
    per-visitor randomness. Hidden when the dataset is missing
    or empty. */
 function freeReadsItems() {
@@ -1105,9 +1105,9 @@ function freeReadsItems() {
 function freeReadsPick(hourIndex = Math.floor(Date.now() / 3600000)) {
   const items = freeReadsItems();
   if (!items.length) return null;
-  const offset = (((hourIndex * 5) % items.length) + items.length) % items.length;
+  const offset = (((hourIndex * 6) % items.length) + items.length) % items.length;
   const picks = [];
-  for (let i = 0; i < Math.min(5, items.length); i++) picks.push(items[(offset + i) % items.length]);
+  for (let i = 0; i < Math.min(6, items.length); i++) picks.push(items[(offset + i) % items.length]);
   return picks;
 }
 function freeReadsHtml() {
@@ -1130,7 +1130,7 @@ function freeReadsHtml() {
   }).join("");
   return `<section class="reads-panel">
     <h2 class="heat-title">📚 FREE READS — THIS HOUR</h2>
-    <p class="reads-sub">Five public-domain classics to read free right now — a fresh five rotates in every hour, the same five for everyone.</p>
+    <p class="reads-sub">Six public-domain classics to read free right now — a fresh six rotates in every hour, the same six for everyone.</p>
     <div class="reads-grid">${cards}</div>
     <p class="reads-foot">Free and legal — public domain classics, read at the source.</p>
   </section>`;

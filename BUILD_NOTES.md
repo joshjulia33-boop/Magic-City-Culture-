@@ -1522,7 +1522,7 @@ absent).
 
 Front-end only, NO database step. A "📚 FREE READS — THIS HOUR"
 panel on the Gallery (after Community Pulse, before the book
-grid), visible to everyone, signed in or not. Five public-domain
+grid), visible to everyone, signed in or not. Six public-domain
 Golden Age comics with covers and a READ FREE button each; the
 button opens the book's page at the source in a new tab. Under
 the panel: "Free and legal — public domain classics, read at
@@ -1533,7 +1533,7 @@ sourceNote, items }`, loaded by index.html between onthisday.js
 and app.js, following the other dataset files' pattern). Each
 item: `{ title, issue, publisher, year, note, coverUrl, readUrl,
 source }`. Launch pool: **37 items**, interleaved across titles
-and publishers so any five consecutive picks are varied.
+and publishers so any six consecutive picks are varied.
 
 **LEGAL LINE — absolute.** Every pick is a **public-domain**
 comic (Golden Age material hosted by the Internet Archive — the
@@ -1569,9 +1569,9 @@ verified but held back for pool variety.
 
 **Rotation — HOURLY.** `freeReadsPick(hourIndex)` in app.js:
 `hourIndex = Math.floor(Date.now() / 3600000)`;
-`offset = (hourIndex * 5) % pool.length`; take five, wrapping.
+`offset = (hourIndex * 6) % pool.length`; take six, wrapping.
 Deterministic — every visitor in the same hour sees the same
-five, and a fresh five steps in on the hour. No database step,
+six, and a fresh six steps in on the hour. No database step,
 no per-visitor randomness. If library.js is missing or empty
 the panel renders nothing.
 
