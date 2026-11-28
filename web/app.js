@@ -1081,6 +1081,61 @@ function communityPulseHtml() {
   </section>`;
 }
 
+/* ---------- free reads library ----------
+   "📚 FREE READS — THIS HOUR": five public-domain Golden Age
+   comics that everyone — signed in or not — can read free, right
+   now, at the source. Data is the static pool in web/library.js
+   (window.MCC_LIBRARY): every item is a verified public-domain
+   comic (Digital Comic Museum / Comic Book Plus catalogue
+   material) with a cover image and a read page that were both
+   checked live before inclusion — see BUILD_NOTES.md, "Free
+   Reads library". The site only ever LINKS OUT to the source's
+   read page; comic files are never copied, rehosted or embedded.
+   The five picks rotate HOURLY and deterministically: the hour
+   index (whole hours since the Unix epoch) steps the pool offset
+   by five, so every visitor in the same hour sees the same five
+   and a fresh five steps in on the hour. No database step, no
+   per-visitor randomness. Hidden when the dataset is missing
+   or empty. */
+function freeReadsItems() {
+  const d = window.MCC_LIBRARY;
+  if (!d || !Array.isArray(d.items)) return [];
+  return d.items.filter((it) => it && it.title && it.readUrl && it.coverUrl);
+}
+function freeReadsPick(hourIndex = Math.floor(Date.now() / 3600000)) {
+  const items = freeReadsItems();
+  if (!items.length) return null;
+  const offset = (((hourIndex * 5) % items.length) + items.length) % items.length;
+  const picks = [];
+  for (let i = 0; i < Math.min(5, items.length); i++) picks.push(items[(offset + i) % items.length]);
+  return picks;
+}
+function freeReadsHtml() {
+  const picks = freeReadsPick();
+  if (!picks) return "";
+  const cards = picks.map((it) => {
+    const name = `${it.title || ""} ${it.issue || ""}`.trim();
+    const meta = [it.year, it.publisher].filter(Boolean).join(" • ");
+    return `<article class="reads-card">
+      <div class="reads-cover">
+        <span class="reads-ph"><span class="reads-ph-title">${esc(it.title || "")}</span><span class="reads-ph-issue">${esc(it.issue || "")}</span></span>
+        <img class="reads-img" src="${esc(it.coverUrl)}" alt="${esc(name)} cover" loading="lazy" onerror="this.remove()" />
+      </div>
+      <h3 class="reads-name">${esc(name)}</h3>
+      ${meta ? `<p class="reads-meta">${esc(meta)}</p>` : ""}
+      ${it.note ? `<p class="reads-note">${esc(it.note)}</p>` : ""}
+      <a class="btn btn-pink btn-sm reads-btn" href="${esc(it.readUrl)}" target="_blank" rel="noopener">READ FREE</a>
+      ${it.source ? `<p class="reads-src">Read at ${esc(it.source)}</p>` : ""}
+    </article>`;
+  }).join("");
+  return `<section class="reads-panel">
+    <h2 class="heat-title">📚 FREE READS — THIS HOUR</h2>
+    <p class="reads-sub">Five public-domain classics to read free right now — a fresh five rotates in every hour, the same five for everyone.</p>
+    <div class="reads-grid">${cards}</div>
+    <p class="reads-foot">Free and legal — public domain classics, read at the source.</p>
+  </section>`;
+}
+
 function viewGalleryHtml() {
   const withCovers = gallery.filter((c) => c.cover_url).length;
   const filtered = filteredGallery();
@@ -1134,6 +1189,7 @@ function viewGalleryHtml() {
   ${heatCarouselHtml()}
   ${upcomingCarouselHtml()}
   ${communityPulseHtml()}
+  ${freeReadsHtml()}
   <section>
     <div class="toolbar">
       <label class="sr-only" for="gallery-search" style="position:absolute;left:-9999px">Search the gallery</label>

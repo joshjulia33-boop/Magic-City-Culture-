@@ -1517,3 +1517,69 @@ Tests: Chrome 12/12 @390 (page loads and renders the app with
 zero JS errors and no horizontal overflow; every tag read back
 from the DOM head with its exact value; og:image asserted
 absent).
+
+## Free Reads library (2026-11-27)
+
+Front-end only, NO database step. A "📚 FREE READS — THIS HOUR"
+panel on the Gallery (after Community Pulse, before the book
+grid), visible to everyone, signed in or not. Five public-domain
+Golden Age comics with covers and a READ FREE button each; the
+button opens the book's page at the source in a new tab. Under
+the panel: "Free and legal — public domain classics, read at
+the source."
+
+**Data — `web/library.js`** (`window.MCC_LIBRARY = { dataUpdated,
+sourceNote, items }`, loaded by index.html between onthisday.js
+and app.js, following the other dataset files' pattern). Each
+item: `{ title, issue, publisher, year, note, coverUrl, readUrl,
+source }`. Launch pool: **37 items**, interleaved across titles
+and publishers so any five consecutive picks are varied.
+
+**LEGAL LINE — absolute.** Every pick is a **public-domain**
+comic (Golden Age material hosted by the Internet Archive — the
+same catalogue the Digital Comic Museum and Comic Book Plus
+carry) or an officially free publisher offering. **No pirate or
+scanlation sites, no modern copyrighted comics, no exceptions.**
+The site only ever **links out** to the source's read page; comic
+files are never copied, rehosted or embedded. (One candidate was
+dropped during verification for turning out to be a 2011 Marvel
+comic mislabeled in the source scratch — check every item, not
+just its label.)
+
+**Verification rule (applied to every item before inclusion).**
+Both URLs are checked live: (1) `coverUrl` must return HTTP 200
+with an image content type — the launch pool's covers were
+additionally downloaded and inspected to confirm they are the
+real covers (a few archive.org thumbnails are small letterboxed
+images; they are genuine, and the card's placeholder tile sits
+behind the image in case one ever fails). (2) `readUrl` must
+resolve to a live item page (HTTP 200) whose files include the
+full scanned book (text/BookReader files present) and which is
+**not** lending-restricted (`access-restricted-item` unset).
+Title/issue/publisher/year come from the item's own archive.org
+metadata, cross-checked against Grand Comics Database / Comic
+Book Plus publication data; era `note`s make only claims those
+sources support (first appearances, famous issues). Candidates
+that failed any check — or whose issue/year could not be pinned
+down accurately (a single-story upload, an unidentifiable
+Phantom Lady item, Cat-Man Comics #2/#3 with their tangled
+Temerson/Holyoke numbering) — were dropped, not guessed at:
+8 dropped for cause out of 64 candidates checked, 19 more
+verified but held back for pool variety.
+
+**Rotation — HOURLY.** `freeReadsPick(hourIndex)` in app.js:
+`hourIndex = Math.floor(Date.now() / 3600000)`;
+`offset = (hourIndex * 5) % pool.length`; take five, wrapping.
+Deterministic — every visitor in the same hour sees the same
+five, and a fresh five steps in on the hour. No database step,
+no per-visitor randomness. If library.js is missing or empty
+the panel renders nothing.
+
+**Refresh:** replace `items` and `dataUpdated` in library.js,
+re-verify BOTH urls of every new item exactly as above, keep
+the pool interleaved, and push that single file.
+
+Files: `web/library.js` (new), `web/app.js` (panel — landed with
+this update), `web/index.html` (script tag), `web/styles.css`
+(`.reads-*` panel styles, electric-blue frame mirroring the
+Heat Monitor panel).
