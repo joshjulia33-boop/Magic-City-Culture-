@@ -11,7 +11,7 @@
    (coverUrl: null renders the site's placeholder tile), then push
    this single file. */
 window.MCC_HEAT = {
-  updatedAt: "2026-11-27T21:02:52Z",
+  updatedAt: "2026-11-28T05:03:02Z",
   sourceNote: "Ranked from actual sales across eBay sold, Whatnot, price guides and comic news.",
   items: [
     {
@@ -46,6 +46,16 @@ window.MCC_HEAT = {
     },
     {
       rank: 4,
+      title: "Invincible",
+      issue: "#1 (Image, 2003)",
+      note: "New entry: #1 on Key Collector's Nov 25 Hot 10 — the first appearance of Invincible and Omni-Man is posting the list's biggest key-issue sales.",
+      priceSignal: "Top sale $9,600 graded 9.8, +20% at 9.2 — Key Collector Hot 10 (Nov 25, 2026)",
+      trend: "up",
+      coverUrl: null,
+      link: "https://www.ebay.com/sch/i.html?_nkw=invincible+%231+cgc&LH_Sold=1&LH_Complete=1"
+    },
+    {
+      rank: 5,
       title: "Inanna: The Name She Lost",
       issue: "#1 — Serena Bell 1:20 variant (Vault, 2026)",
       note: "CovrPrice's #3 book for the week ending Nov 22 — the Serena Bell 1:20 incentive was a mega-hit on release and demand is still spiking its price.",
@@ -55,47 +65,27 @@ window.MCC_HEAT = {
       link: "https://www.ebay.com/sch/i.html?_nkw=inanna+the+name+she+lost+%231+serena+bell&LH_Sold=1&LH_Complete=1"
     },
     {
-      rank: 5,
+      rank: 6,
       title: "Afterlife With Archie",
       issue: "#1 — Francesco Francavilla Cover A (Archie, 2013)",
-      note: "New entry: CovrPrice's #4 book — Disney+ cast its Archie, Veronica, Betty, Jughead and Sabrina this past week for the Halloween 2027 series, and copies started moving again.",
+      note: "CovrPrice's #4 book for the week ending Nov 22 — Disney+ cast its Archie, Veronica, Betty, Jughead and Sabrina for the Halloween 2027 series, and copies started moving again.",
       priceSignal: "High sale $34 raw NM, fair market value $29 — CovrPrice (weekly Top 10, week ending Nov 22, 2026)",
       trend: "up",
       coverUrl: null,
       link: "https://www.ebay.com/sch/i.html?_nkw=afterlife+with+archie+%231+francavilla&LH_Sold=1&LH_Complete=1"
     },
     {
-      rank: 6,
+      rank: 7,
       title: "Chainkata",
       issue: "#1 — Daniel Warren Johnson regular cover (Image, 2026)",
-      note: "CovrPrice's #5 book — Chainkata editions fill six of its newest Top 10 slots, and the regular cover keeps selling in massive numbers.",
+      note: "CovrPrice's #5 book — Chainkata editions fill half of its newest Top 10, and the regular cover keeps selling in massive numbers after its 250K+ first print sold out.",
       priceSignal: "Graded 9.8 high sale $100, raw NM fair market value $13 — CovrPrice (weekly Top 10, week ending Nov 22, 2026)",
       trend: "heating",
       coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-5698084.jpg",
       link: "https://www.ebay.com/sch/i.html?_nkw=chainkata+%231&LH_Sold=1&LH_Complete=1"
     },
     {
-      rank: 7,
-      title: "Chainkata",
-      issue: "#1 — Nick Dragotta Felix Comic Art, Limited 1000 (Image, 2026)",
-      note: "CovrPrice's #6 book — Absolute Batman artist Nick Dragotta's limited Felix Comic Art exclusive is the newest Chainkata chase cover.",
-      priceSignal: "High sale $200 raw NM, fair market value $157 — CovrPrice (weekly Top 10, week ending Nov 22, 2026)",
-      trend: "up",
-      coverUrl: null,
-      link: "https://www.ebay.com/sch/i.html?_nkw=chainkata+%231+dragotta+felix&LH_Sold=1&LH_Complete=1"
-    },
-    {
       rank: 8,
-      title: "Chainkata",
-      issue: "#2 — Ito Gotham Central Comics Virgin, Limited 500 (Image, 2026)",
-      note: "New entry: CovrPrice's #7 book — this December exclusive is already selling a whole month before it releases, on Ito + Chainkata heat.",
-      priceSignal: "High sale $119 raw NM, fair market value $110 — CovrPrice (weekly Top 10, week ending Nov 22, 2026)",
-      trend: "up",
-      coverUrl: null,
-      link: "https://www.ebay.com/sch/i.html?_nkw=chainkata+%232+ito+gotham+central&LH_Sold=1&LH_Complete=1"
-    },
-    {
-      rank: 9,
       title: "Marvel Super-Heroes Secret Wars",
       issue: "#8 (Marvel, 1984)",
       note: "GoCollect's #2 most-sold book of the past 10 days and #6 on Key Collector's Nov 25 Hot 10 — first black costume / symbiote suit keeps moving.",
@@ -103,6 +93,16 @@ window.MCC_HEAT = {
       trend: "heating",
       coverUrl: "https://s3.amazonaws.com/comicgeeks/comics/covers/medium-7603337.jpg",
       link: "https://www.ebay.com/sch/i.html?_nkw=secret+wars+%238+cgc+9.8&LH_Sold=1&LH_Complete=1"
+    },
+    {
+      rank: 9,
+      title: "Legion of Super-Heroes",
+      issue: "#Ashcan — 2026 SDCC Preview (DC, 2026)",
+      note: "New entry: CovrPrice's #9 book — collectors discovered Bat-Lad hidden on this wraparound preview's back cover, its first cover appearance, and copies took off.",
+      priceSignal: "High sale $32 raw NM, fair market value $24 — CovrPrice (weekly Top 10, week ending Nov 22, 2026)",
+      trend: "up",
+      coverUrl: null,
+      link: "https://www.ebay.com/sch/i.html?_nkw=legion+of+super-heroes+ashcan+sdcc+bat-lad&LH_Sold=1&LH_Complete=1"
     },
     {
       rank: 10,
